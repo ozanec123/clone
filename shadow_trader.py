@@ -1,58 +1,10 @@
 #!/usr/bin/env python3
 """
-NEXUS INERTIA TRADER v4.8.2 — REV v3, every lane LIVE, EXPLOSION (v4.6.4
-machine), flexible cooldowns, flat sessions, SGRIND (continuation, v4.6.4
-behavior) + SGREV (reversal) running side by side, continuous k15 rotation.
+NEXUS INERTIA TRADER v4.7.2 — tick REV v2, restored aggTrade EXPLOSION,
+confirmation lanes, BURST momentum lane, process-role split (scanner/trader).
 
 Shadow ledger only. No exchange orders are submitted. Pre-registered: no
 changes until lane gates or 21 days. Fresh ledger; prior ledgers preserved.
-
-v4.8.2 CHANGES (user-directed):
-- BOTH SGRIND flavors run in parallel for A/B: SGRIND is RESTORED to the
-  v4.7.2/v4.6.4 continuation behavior (4-6 candles >=2%, 1 opposite candle,
-  price extending it -> enter WITH the grind, forced SWING), and the v4.8.1
-  redesign lives on as SGREV (>=4 candles any length, >=4% open-to-extreme,
-  live break of the opposite candle's extreme -> enter AGAINST the grind).
-  No head-on conflict: on any single setup the two are mutually exclusive —
-  the continuation lane fires only when the break happens BEFORE cache
-  discovery, the reversal lane only when it happens AFTER (its stale-break
-  guard skips earlier breaks). The global one-position-per-symbol rule still
-  applies as everywhere. SGREV has its own name, emoji, verdict counter and
-  per-(coin,lane) flexible cooldown.
-- k15 cache: CONTINUOUS oldest-first rotation instead of the 300s cycle
-  (which dates back to v4.6.4 — kept until now for behavior preservation).
-  Newly closed 15m candles are discovered within one sweep (~30-45s) instead
-  of up to ~6 min; 1h candles (SQUEEZE only) rotate on a slower cadence.
-
-v4.8.1 CHANGES (user-directed):
-- SGRIND REDESIGNED from continuation to REVERSAL (the v4.8.0 'enter WITH the
-  grind' behavior traded 0GUSDT against the user's intent). New spec: a grind
-  of >=4 same-direction 15m candles (ANY length — 6, 10, 20 all qualify) with
-  a >=4% move from the FIRST streak candle's OPEN to the streak's most
-  extreme point; then ONE closed opposite candle; then during the NEXT candle
-  a LIVE break of that opposite candle's extreme enters AGAINST the original
-  grind at market price. Watch window = the candle after the opposite one; it
-  dies on window close, on price crossing back past the opposite candle's
-  other extreme (grind resuming), and never chases a break that already
-  happened before discovery (k15 latency). Fresh verdict counter via version.
-
-v4.8.0 CHANGES (all user-directed):
-- REV v3: dump trigger 3.0→2.5%/60s on 1s closes, bounce 0.5→0.75%. Systemic
-  filter KEPT; vertical guard REMOVED.
-- SGRIND: pinned to v4.6.4 behavior end-to-end (forced SWING tier; its 2h
-  cooldown replaced by the flexible money-based cooldown below).
-- ALL lanes live: DEEPDIP v2 / FAILBREAK / SQUEEZE / FOLLOWER / BURST trade
-  REAL (paper machinery retained for tests only). EXPLOSION restored to the
-  v4.6.4 q24 minute-bucket machine with knife-guard fills — LIVE, full size;
-  the aggTrade detection machine is deleted again (the aggTrade feed remains
-  as the 1s recorder evidence layer).
-- Sessions flat: SESSION_SIZES all 1.0.
-- Direction balance REMOVED (no up/down caps at all).
-- Vertical (10%/15m) veto REMOVED.
-- Flexible cooldown (max 1h) replaces SGRIND 2h / PFADE 4h / FAILBREAK 2h /
-  DEEPDIP v2 2h: after a close on (coin,lane): win → 5 min; loss → scaled by
-  money lost, 10–60 min (full ~$45 stop = 60 min). REV/FSQZ/DIP-X stay
-  cooldown-free. Episode scoping (one per crash/squeeze/burst) unchanged.
 
 v4.7.2 REPAIR SET (bug fixes over v4.7.0/4.7.1; no strategy semantics changed):
 - run() worker lifetime: signal_consumer self-returns outside the trader role,
@@ -91,54 +43,51 @@ v4.7.2 REPAIR SET (bug fixes over v4.7.0/4.7.1; no strategy semantics changed):
   original payload/episode_id.
 
 ═══════════════════════════════════════════════════════════════════
-ROSTER (12 live · 1 instrument · 2 log-only · 1 dead):
-⚡ REV v3       LIVE, full: dump ≥2.5%/60s on 1s closes (live stream) → low
+ROSTER (5 live · 5 paper-gated · 1 instrument · 2 log-only · 1 dead):
+⚡ REV v2       LIVE, half→n=40: dump ≥3%/60s on 1s closes (live stream) → low
                tracked on BID (episode bookTicker) → 10s three-outcome watch →
-               bid bounce ≥0.75% → LONG. Systemic filter kept (BTC ≤-0.40%/60s
-               skips market-wide dumps); vertical guard REMOVED in v4.8.
-               Gate n=40.
+               bid bounce ≥0.5% → LONG. Flat 0.5% all coins. Guards: systemic
+               BTC ≤-0.40%/60s, vertical ≥10%/15m, dip budget.
 🧲 FUNDING_SQZ  LIVE, half: PINNED to the v4.6.4 skeleton (dump ≥2%/60s candle
                ticks + bounce ≥1% + funding ≤-0.30%). High-vol gate EXEMPT.
                2-week fill deadline, then redesign from arm-event logs.
 🕳🕳 DEEPDIP_X   LIVE, half, unchanged: ≥18% within 45min (5m velocity) →
                stabilize 10m → bounce ≥2%. Scale decision at n=20.
-🐌 SGRIND       LIVE, continuation (v4.6.4/v4.7.2 behavior restored): 4-6x
-               15m candles ≥2% → 1 opposite closed → price extending it →
-               enter WITH the grind. SWING, full. Flexible cd (≤1h). n=50.
-🔄 SGREV       LIVE, reversal (the v4.8.1 redesign, own lane for A/B):
-               ≥4x 15m candles (any length) with ≥4% open→extreme → 1 closed
-               opposite candle → live break of its extreme next candle →
-               enter AGAINST the grind. SWING, full. Flexible cd. Own n=20.
+🐌 SGRIND       LIVE, unchanged: 4-6x 15m candles ≥2% → 1.5 opposite → WITH
+               trend. SWING. 2h cooldown. Scale decision at n=50.
 🚀 PFADE        LIVE, structure unchanged; re-long leg OI/funding-CONFIRMED:
                ≥20% over 24h low → 15m close < prior low → SHORT (half);
                2x 15m no-new-low AND (OI Δ≤-3% since trigger OR funding ≤-0.10%)
-               → LONG. Per-leg verdict at n=20. Flexible cooldown (≤1h).
-🕳 DEEPDIP v2    LIVE, full: ≥20% below rolling 24h high, latched at the low (expires
+               → LONG. Per-leg verdict at n=20. 4h cooldown.
+🕳 DEEPDIP v2    PAPER: ≥20% below rolling 24h high, latched at the low (expires
                24h) → 2 consecutive positive 15m candles (close>open) → LONG at
                2nd close. X owns velocity episodes (one crash, one lane). Stop =
-               dump low -0.3%, skip if >4% from entry. Flexible cd, one per episode.
-🪤 FAILBREAK    LIVE, full: 15m close ≥0.3% above 12h high with breakout volume <2x
+               dump low -0.3%, skip if >4% from entry. 2h cd, one per episode.
+               Half until n=20, full at n=50. Fresh verdict counter.
+🪤 FAILBREAK    PAPER: 15m close ≥0.3% above 12h high with breakout volume <2x
                50-candle median → close back below within 2 candles → SHORT.
-               Stop break-high +0.15%. Ladder exits. Flexible cd, one per episode.
+               Stop break-high +0.15%. Ladder exits. 2h cd, one per episode.
                Mirror long coded, DISABLED until co-fire audit <30% REV overlap.
-🧨 SQUEEZE_BRK  LIVE, full: 12x1h range width ≤20th pct of trailing 7d AND ≤1.5×
-               ATR(1h) → 15m close outside w/ volume ≥2x 15m median → enter.
-               SWING. One trade per squeeze episode.
-🐦 FOLLOWER     LIVE, full: |BTC| ≥1.2%/5min → biggest liquid laggard
+🧨 SQUEEZE_BRK  PAPER: 12x1h range width ≤20th pct of trailing 7d AND ≤1.5×
+               ATR(1h) → 15m close outside w/ volume ≥2x median (aggTrade
+               machine) → enter. SWING half. One trade per squeeze episode.
+🐦 FOLLOWER     PAPER (needs pre-list): |BTC| ≥1.2%/5min → biggest liquid laggard
                (≤0.25x BTC move, own volume ≤3x median, spread ok) → 60s
                momentum ≥0.15% in BTC's direction → enter WITH BTC. 12-min time
                stop, 0.6x-capture target, 0.6% adverse stop. Systemic NOT applied.
-🔆 BURST        LIVE, full: candle-1 15m body ≥±5% (close vs open) → candle-2
-               opens same-direction (gap ≤2% beyond candle-1 close) and is
-               currently the same color → LIVE tick breaking candle-1's high
-               (LONG) / low (SHORT) enters WITH the move. Intrabar trigger —
-               no candle-2 close wait. One per burst; flexible cd.
-💥 EXPLOSION    RESTORED to the v4.6.4 q24 machine (user-directed): projected
-               1-minute q24-delta volume ≥20x REST median + ≥1% move, fires
-               seconds 3-10 of the minute, 0.7% pullback limit, knife-guard
-               fills, TTL 120s. LIVE, full size. (The aggTrade detection
-               machine is deleted; the aggTrade feed stays as the 1s recorder
-               evidence layer.)
+🔆 BURST        PAPER: candle-1 15m body ≥±5% (close vs open) → candle-2 opens
+               same-direction (gap ≤2% beyond candle-1 close) and is currently
+               the same color → LIVE tick breaking candle-1's high (LONG) /
+               low (SHORT) enters WITH the move. Intrabar trigger — no candle-2
+               close wait. Half, brain-routed tier, 2h cd, one per burst,
+               n=20 verdict, co-fire vs SGRIND/REV v2.
+💥 EXPLOSION    RESTORED (v4.6.3 aggTrade machine VERBATIM): disjoint 15s burst
+               vs PRECEDING 180s baseline on real trade notional; ≥1% move in
+               60s; fires 3-10s into the move; 0.7% pullback resting fill; 195s
+               warmup; 120s refractory. Infra fixes: one-sided staleness (≥30s),
+               graceful subscription overshoot (top-1024 by q24). PAPER until
+               the 1-week replay vs recorded 1s bars is clean; flip live with
+               NEXUS_EXPLOSION_LIVE=1. Fresh counter, half size.
 🫗 OI_FLUSH     INSTRUMENT: on every REV v2 dump episode, /fapi/v1/openInterest
                polled every 10s from trigger to +120s; OI Δ% + bounce outcome
                logged. Arms later only if OI-down dumps separate.
@@ -156,33 +105,24 @@ PROCESS ROLES (NEXUS_ROLE env): both (default) | scanner | trader.
   same-role or both-vs-anything yields as before. Split mode is same-host only —
   the two functions that would need replacing for a network transport are
   _emit_signal() (Part 3) and signal_consumer() (Part 4); nothing else changes.
-  TELEGRAM IDENTITY (v4.7.3): each role can speak as its own bot. Env precedence
-  TG_TOKEN_<ROLE>/TG_CHAT_<ROLE> (SCANNER|TRADER|BOTH) → TRADER_TG_* →
-  TELEGRAM_*. Unset role vars fall back to the shared bot. Trader bot carries
-  OPEN/CLOSE/2h-report traffic; the scanner bot is startup-silent otherwise
-  (detections go to the decision log).
 
-SYSTEM RULES (v4.8):
-- Dip budget: max 2 concurrent dip-class positions (REV/DEEPDIP_X/DEEPDIP_V2).
-- Co-fire audit: ±10min same-coin tags on every signal (audit data only).
-- Regime tags: BTC 30m move + vol bucket stamped at ENTRY.
-- Direction balance: REMOVED (v4.8) — the book may be all-up, all-down, mixed.
-- Vertical guard: REMOVED (v4.8).
-- Sessions: flat 1.0x (v4.8).
-- Flexible cooldown (max 1h): win → 5 min · loss → 60min × loss/$45, clamped
-  10–60 min — on SGRIND / PFADE / FAILBREAK / DEEPDIP v2. REV/FSQZ/DIP-X
-  cooldown-free. Episode scoping (one per crash/squeeze/burst) unchanged.
-- Verdict rule: n=20 → decision; n=50 positive → full. REV override: n=40.
-- No benching, no per-symbol stops, no daily breaker — DELIBERATE.
+SYSTEM RULES:
+- Dip budget: max 2 concurrent REAL dip-class positions (REV/X/DEEPDIP_V2).
+- Co-fire audit: ±10min same-coin + same-episode tags on every signal; paper
+  lanes can't arm above 30% REV overlap.
+- Regime tags: BTC 30m move + vol bucket stamped on every trade, day one.
+- Verdict rule: n=20 half → decision; n=50 positive → full. REV v2 override: n=40.
+- No benching, no per-symbol stops, no daily breaker — DELIBERATE. Cooldowns:
+  SGRIND 2h · FAILBREAK 2h+episode · DEEPDIP v2 2h+episode · SQUEEZE episode ·
+  PFADE 4h. All others none.
 - 1s recorder: top-150 by q24 + episode symbols; SEPARATE DB, batched writes,
   7-day retention. Cannot be backfilled — the autopsy layer.
 
 EXITS (validated in v4.6.4, untouched): stop -2.2% HARD all lanes · ladder arms
 +0.8% (floor peak-0.5%; peak-1.0% ≥3.0%) · early cut -1.5% if ladder never
-armed · SCALP 30m-if-winning/60m · SWING 60m · sizing $45/(2.2%+slip) ·
-flat sessions (1.0x, v4.8) · cap $1500 · half size: FSQZ + DIP-X only — every
-other lane trades FULL since v4.8 · paper rows (tests only) never consume
-capacity.
+armed · SCALP 30m-if-winning/60m · SWING 60m · sizing $45/(2.2%+slip) · session
+×0.75/1.0 · cap $1500 · half size: FSQZ, DIP-X, DEEPDIP v2, FAILBREAK, SQUEEZE,
+FOLLOWER, EXPLOSION, BURST · paper positions excluded from all capacity math.
 
 CARRIED: behavioral selftest (numeric REV-v2/DEEPDIP-v2/ladder/cut/systemic
 cases, migration smoke, wiring + REMOVAL assertions) · takeover (role-aware) ·
@@ -210,23 +150,14 @@ ALERT_DB = os.getenv("PERFORMANCE_DB_PATH", "/data/alerts_performance.db")
 FAPI = "https://fapi.binance.com"
 WS_BASES = ["wss://fstream.binance.com/market", "wss://fstream.binance.com"]
 WS_PATH = "/ws/!miniTicker@arr"
+TG_TOKEN = os.getenv("TRADER_TG_TOKEN", os.getenv("TELEGRAM_BOT_TOKEN", ""))
+TG_CHAT = os.getenv("TRADER_TG_CHAT", os.getenv("TELEGRAM_CHAT_ID", ""))
+TG_ENABLED = bool(TG_TOKEN and TG_CHAT)
+
 # ---- process role: scanner detects · trader trades · both = single process ----
 NEXUS_ROLE = os.getenv("NEXUS_ROLE", "both").strip().lower()
 IS_SCANNER = NEXUS_ROLE in ("scanner", "both")
 IS_TRADER  = NEXUS_ROLE in ("trader", "both")
-
-# ---- Telegram: per-role bot identity ----
-# Precedence: TG_TOKEN_<ROLE>/TG_CHAT_<ROLE> → TRADER_TG_* → TELEGRAM_*.
-# Role vars unset → the shared bot (existing deployments unchanged). Set
-# TG_TOKEN_SCANNER + TG_TOKEN_TRADER (+ TG_CHAT_*) and, in split mode, the
-# scanner and trader speak as two DIFFERENT Telegram bots.
-_ROLE_U = NEXUS_ROLE.upper()
-TG_TOKEN = os.getenv(f"TG_TOKEN_{_ROLE_U}",
-                     os.getenv("TRADER_TG_TOKEN", os.getenv("TELEGRAM_BOT_TOKEN", "")))
-TG_CHAT = os.getenv(f"TG_CHAT_{_ROLE_U}",
-                    os.getenv("TRADER_TG_CHAT", os.getenv("TELEGRAM_CHAT_ID", "")))
-TG_ENABLED = bool(TG_TOKEN and TG_CHAT)
-
 SIGNAL_TTL_SEC = 90.0          # a signal older than this is dead on arrival
 SIGNAL_CLAIM_TTL = 45.0        # claimed-but-unfinished signals reclaimable after this
 SIGNAL_POLL_SEC = 1.0
@@ -243,8 +174,8 @@ EARLY_CUT_PCT = 1.5
 SCALP_HOLD_MIN, SWING_HOLD_MIN = 30.0, 60.0
 
 # ---- REV v2 (tick design, locked) ----
-REV_DUMP_PCT, REV_DUMP_WIN = 2.5, 60.0             # v4.8: 2.5%/60s on 1s closes
-REV_BOUNCE_PCT = 0.75                              # v4.8: 0.75% bounce, ALL coins
+REV_DUMP_PCT, REV_DUMP_WIN = 3.0, 60.0             # 1s-close drawdown in trailing 60s
+REV_BOUNCE_PCT = 0.5                               # flat, ALL coins (high-vol DELETED)
 REV_WATCH_SEC = 10.0                               # three-outcome watch after the low
 REV_STALE_SEC = 120.0                              # no bounce this long after the low → dead
 REV_CUTOVER_N = 40                                 # half size until n=40 (lane override)
@@ -268,27 +199,31 @@ DD2_LATCH_HRS = 24.0
 DD2_CANDLES = 2                                    # consecutive positive 15m candles
 DD2_STOP_BUF = 0.3
 DD2_MAX_STOP_DIST = 4.0
+DD2_COOLDOWN_SEC = 7200.0
 DD2_CUTOVER_N = 20
 
-# ---- SGRIND continuation (v4.6.4/v4.7.2 behavior restored) ----
-SG_MIN_CANDLES, SG_MAX_CANDLES = 4, 6   # streak 4-6 candles (7+ rejected — v4.6.4 nuance)
-SG_MIN_STREAK_PCT = 2.0                 # close-before-streak → last streak close ≥±2%
-# ---- SGREV reversal (the v4.8.1 redesign, own lane for the A/B) ----
-SGREV_MIN_CANDLES = 4           # streak: 4 or more same-direction candles (no upper limit)
-SGREV_MIN_STREAK_PCT = 4.0      # first streak candle's OPEN → streak's most extreme point ≥±4%
+# ---- SGRIND (unchanged) ----
+SG_MIN_CANDLES, SG_MAX_CANDLES = 4, 6
+SG_MIN_STREAK_PCT = 2.0
+SG_COOLDOWN_SEC = 7200.0
 
 # ---- PFADE (structure unchanged; re-long confirmation added) ----
 PF_MIN_RUN_PCT = 20.0
 PF_STAB_CANDLES = 2
+PF_COOLDOWN_SEC = 14400.0
 PF_RELONG_OI_DROP = 3.0                            # OI Δ% since short trigger ≤ -3%
 PF_RELONG_FUNDING = -0.10                          # OR funding ≤ -0.10%
 
-# ---- EXPLOSION (v4.6.4 q24 machine, verbatim constants) ----
-TRADE_SUB_LIMIT = 1024                             # aggTrade recorder feed cap
-EXPLOSION_VOL_X = 20.0                             # projected minute pace ≥20x median
+# ---- EXPLOSION (v4.6.3 machine, verbatim constants) ----
+TRADE_SUB_LIMIT = 1024
+EXPLOSION_VOL_X = 20.0
 EXPLOSION_MIN_MOVE_PCT = 1.0
 EXPLOSION_EARLY_SEC, EXPLOSION_EARLY_MIN_SEC = 10.0, 3.0
 EXPLOSION_PULLBACK_PCT, EXPLOSION_PB_TTL_SEC = 0.7, 120
+EXPLOSION_PACE_SEC = 15.0
+EXPLOSION_BASE_SEC = 180.0
+EXPLOSION_WARMUP_SEC = 195.0
+EXPLOSION_REFRACT_SEC = 120.0
 VOL_MEDIAN_REFRESH_SEC, VOL_MEDIAN_SYMS = 600.0, 300
 
 # ---- systemic filter (recalibrated 0.75 → 0.40) ----
@@ -298,11 +233,9 @@ CHASE_MAX_PCT = 1.5
 VETO_EXH_MAX = 85
 ALIGN_CAL_BOOST = 0.60
 
-# ---- 15m/1h kline cache (k15: DDv2/X, SGRIND, SGREV, PFADE, FAILBREAK, SQUEEZE, BURST) ----
-K15_SYMS, K15_LIMIT = 150, 96
-K15_PACE_SEC = 0.12            # continuous rotation pacing (v4.8.2: no 300s cycle)
+# ---- 15m/1h kline cache (k15: DDv2/X, SGRIND, PFADE, FAILBREAK, SQUEEZE, DAYOPEN) ----
+K15_REFRESH_SEC, K15_SYMS, K15_LIMIT = 300.0, 150, 96
 K1H_LIMIT = 168                                    # 7d of 1h bars for SQUEEZE
-K1H_REFRESH_SEC = 600.0        # 1h candles feed only SQUEEZE — slower cadence is fine
 FAILBREAK_LOOKBACK_H = 12
 SQUEEZE_LOOK_CANDLES, SQUEEZE_PCTILE = 12, 20
 SQUEEZE_ATR_MULT = 1.5
@@ -335,24 +268,24 @@ RECORDER_RETAIN_DAYS = 7
 REC_BUF_CAP = 100000            # flush-buffer ceiling (backlog protection)
 
 # ---- system ----
-BTC_HOT_MOVE_PCT = 1.0                            # tick-line info only (caps removed v4.8)
+DIRECTION_CAP_BTC_CALM, DIRECTION_CAP_BTC_HOT = 6, 4
+BTC_HOT_MOVE_PCT = 1.0
 DIP_BUDGET = 2
 DIP_LANES = ("REV", "DEEPDIP_X", "DEEPDIP_V2")
 CO_FIRE_WINDOW = 600.0
-# v4.8 flexible cooldown (replaces SGRIND 2h / PFADE 4h / FAILBREAK 2h / DDv2 2h):
-# after a close on (coin,lane): win → 5 min · loss → scaled by money lost,
-# 10..60 min (a full ~$45 stop = 60 min). REV/FSQZ/DIP-X stay cooldown-free.
-LANE_COOLDOWN_WIN_SEC = 300.0
-LANE_COOLDOWN_MIN_SEC = 600.0
-LANE_COOLDOWN_MAX_SEC = 3600.0
-FLEX_CD_LANES = ("SGRIND", "SGREV", "PFADE", "FAILBREAK", "DEEPDIP_V2")
-SESSION_SIZES = {h: 1.00 for h in range(24)}   # v4.8: flat — sessions no longer sized
+SESSION_SIZES = {
+    **{h: 0.75 for h in range(0, 7)},       # Asia 00-07
+    **{h: 1.00 for h in range(7, 13)},      # EU 07-13
+    **{h: 1.00 for h in range(13, 20)},     # US 13-20
+    **{h: 0.75 for h in range(20, 24)},     # Late 20-24
+}
 POLL_SEC, WAITROOM_SEC = 3, 120
 TAKER_FEE_PCT_SIDE, MAKER_FEE_PCT_SIDE = 0.05, 0.02
 SLIP_SPREAD_MULT, SLIP_MIN_PCT, SLIP_MAX_PCT = 3.0, 0.05, 0.30
 KILL = os.getenv("NEXUS_SHADOW_KILL", "0") == "1"
 KILLFILE = os.getenv("NEXUS_KILLFILE", "/data/nexus_v3_kill")
 CONSERVATIVE_FILLS = os.getenv("NEXUS_CONSERVATIVE", "0") == "1"
+EXPLOSION_LIVE = os.getenv("NEXUS_EXPLOSION_LIVE", "0") == "1"
 def kill_now():
     if KILL: return True
     try: return os.path.exists(KILLFILE)
@@ -368,13 +301,13 @@ W_PRIO, W_HIST, W_REL, W_RAW, W_OI, W_BOOK, W_FRESH, W_ALIGN = 0.20, 0.15, 0.15,
 # lane enable flags — LIVE
 ENABLE_REV, ENABLE_FUNDING_SQZ, ENABLE_DEEPDIP_X = True, True, True
 ENABLE_SGRIND, ENABLE_PFADE = True, True
-# v4.8: every lane trades LIVE (paper machinery retained for tests only)
-ENABLE_DEEPDIP_V2 = True
-ENABLE_FAILBREAK = True
-ENABLE_SQUEEZE = True
-ENABLE_FOLLOWER = True
-ENABLE_BURST = True             # 5% body → intrabar break
-ENABLE_EXPLOSION = True         # v4.6.4 q24 machine, full size
+# PAPER-gated (orders blocked; paper=1 positions get full exit machinery)
+ENABLE_DEEPDIP_V2 = False
+ENABLE_FAILBREAK = False
+ENABLE_SQUEEZE = False
+ENABLE_FOLLOWER = False
+ENABLE_BURST = False            # 5% body → intrabar break; paper until n=20 verdict
+ENABLE_EXPLOSION = False        # restored; paper detections until replay passes
 # LOG-ONLY
 ENABLE_FUNDING_TS = True
 ENABLE_DAYOPEN = True
@@ -382,7 +315,7 @@ ENABLE_DAYOPEN = True
 LANE_PRIO = {
     "FUNDING_SQZ": 0.95, "PFADE": 0.90, "REV": 0.85, "EXPLOSION": 0.85,
     "FOLLOWER": 0.85, "SGRIND": 0.80, "FAILBREAK": 0.80, "SQUEEZE": 0.80,
-    "BURST": 0.80, "SGREV": 0.80, "DEEPDIP_X": 0.75, "DEEPDIP_V2": 0.70,
+    "BURST": 0.80, "DEEPDIP_X": 0.75, "DEEPDIP_V2": 0.70,
 }
 STABLE_SYMBOLS = {
     "USDCUSDT","FDUSDUSDT","TUSDUSDT","USDPUSDT","DAIUSDT","EURUSDT","AEURUSDT",
@@ -392,7 +325,7 @@ STABLE_SYMBOLS = {
 NOW_MEASURE_MIN_AGE_SEC = 300.0
 NOW_MEASURE_MAX_AGE_SEC = 7200.0
 NOW_MEASURE_METHOD = "horizon_1m_v1"
-RULES_VER = "4.8.2"
+RULES_VER = "4.7.2"
 
 def now_ts(): return time.time()
 def hms(): return datetime.now().strftime("%H:%M:%S")
@@ -904,22 +837,16 @@ def roundtrip_cost(notional, spread_pct):
     sp = spread_pct if (spread_pct is not None and spread_pct > 0) else 0.03
     slip = min(max(SLIP_SPREAD_MULT * sp, SLIP_MIN_PCT), SLIP_MAX_PCT)
     return notional * (2 * TAKER_FEE_PCT_SIDE + slip) / 100.0
-_lane_cd = {}
-def _set_lane_cooldown(symbol, lane, net_pnl):
-    """v4.8 flexible cooldown, max 1h: win → 5 min; loss → scaled by the
-    money lost (a full ~$45 stop = 60 min, tiny losses hit the 10 min floor).
-    Applies only to the lanes that had timed cooldowns before; REV/FSQZ/DIP-X
-    remain cooldown-free. Episode scoping is separate and unchanged."""
-    if net_pnl >= 0:
-        cd = LANE_COOLDOWN_WIN_SEC
-    else:
-        cd = LANE_COOLDOWN_MAX_SEC * min(1.0, (-net_pnl) / RISK_DOLLARS)
-        cd = clamp(cd, LANE_COOLDOWN_MIN_SEC, LANE_COOLDOWN_MAX_SEC)
-    _lane_cd[(symbol, lane)] = now_ts() + cd
-def _lane_cooldown_ok(symbol, lane, now):
-    if lane not in FLEX_CD_LANES: return True
-    end = _lane_cd.get((symbol, lane))
-    return end is None or now >= end
+def _direction_cap_ok(direction, real_only=True):
+    opens = open_positions(real_only=real_only)
+    same = sum(1 for p in opens if p["direction"] == direction)
+    cap = DIRECTION_CAP_BTC_HOT if _btc_hot else DIRECTION_CAP_BTC_CALM
+    return same < cap
+def _is_vertical(sym, now):
+    p = _px_ago(sym, now, 900)
+    px = stream_price(sym)
+    if not p or not px: return False
+    return abs((px / p - 1.0) * 100.0) >= 10.0
 
 # ═══════════════════════════════ END PART 1/4 ═══════════════════════════════
 # Part 2/4 begins at: # ============ STREAM STATE + REV v2 EPISODES
@@ -939,13 +866,12 @@ class StreamState:
         # REV v2 episodes
         self.rev_eps = {}          # sym → episode dict (state machine, _rev_tick_ep)
         self.bid = {}              # sym → (ts, bid)   from episode bookTicker
-        # aggTrade subsystem (1s recorder evidence layer)
+        # aggTrade subsystem (EXPLOSION + recorder)
         self.t1s = {}              # sym → {"last_id","started","dq","cur"}  per-second OHLC+q
         self.trade_last_msg = 0.0
-        # EXPLOSION — v4.6.4 q24 machine
-        self.pendings = {}         # sym → explosion pullback {dir, level, ts, trigger_px}
-        self.exp_acc = {}          # sym → [minute_bucket, vol, first_px]
-        self.exp_fired = {}        # sym → minute bucket last fired
+        self.pendings = {}         # sym → explosion pullback order
+        self.exp_fired = {}        # sym → last fire ts (refractory)
+        self.move_state = {}       # sym → {"start","dir"}   3–10s move window
         # recorder
         self.rec_syms = set()      # top-150 scope (refreshed by recorder worker)
         self.rec_episodes = set()  # episode-scope escalation
@@ -967,9 +893,9 @@ def _ws_reset(feed):
         SS.px_windows.clear(); SS.q24.clear(); SS.rev_1s.clear(); SS.btc_px.clear()
         SS.rev_eps.clear()     # book_manager unsubscribes via wanted-set diff
         SS.watch.clear(); SS.last_check.clear()
-        SS.pendings.clear(); SS.exp_acc.clear(); SS.exp_fired.clear()
     elif feed == "trades":
-        SS.t1s.clear(); SS.trade_last_msg = 0.0
+        SS.t1s.clear(); SS.pendings.clear(); SS.exp_fired.clear()
+        SS.move_state.clear(); SS.trade_last_msg = 0.0
     decide("system", "*", "ws_reset", {"feed": feed})
     print(f"[{hms()}] [ws   ] {feed} state reset (reconnect hygiene)")
 
@@ -1230,10 +1156,10 @@ async def book_manager():
             idx += 1
             await asyncio.sleep(5)
 
-# ================================================================ EXPLOSION — v4.6.4 q24 MACHINE (restored by directive)
+# ================================================================ EXPLOSION — v4.6.3 aggTrade MACHINE (restored)
 def _record_trade(sym, price, quantity, trade_id, now):
     """aggTrade ingest — v4.6.3 exactly-once semantics, extended to per-second
-    OHLC+notional buckets (the recorder's evidence layer)."""
+    OHLC+notional buckets (the recorder's evidence layer + _trade_pace input)."""
     if sym in STABLE_SYMBOLS or not sym.endswith("USDT"): return
     try:
         usd = float(price) * float(quantity)
@@ -1253,115 +1179,106 @@ def _record_trade(sym, price, quantity, trade_id, now):
             st["dq"].append((cur["sec"], cur["o"], cur["h"], cur["l"], cur["c"], cur["q"]))
             if sym in SS.rec_syms or sym in SS.rec_episodes:
                 SS.rec_buf.append((sym, cur["sec"], cur["o"], cur["h"], cur["l"], cur["c"], cur["q"]))
-            while st["dq"] and st["dq"][0][0] < sec - 200:   # pace machine removed v4.8
+            while st["dq"] and st["dq"][0][0] < sec - (EXPLOSION_BASE_SEC + EXPLOSION_PACE_SEC + 2):
                 st["dq"].popleft()
         cur = st["cur"] = {"sec": sec, "o": price, "h": price, "l": price, "c": price, "q": usd}
     else:
         cur["h"] = max(cur["h"], price); cur["l"] = min(cur["l"], price)
         cur["c"] = price; cur["q"] += usd
 
-# ---- v4.6.4 q24 machine (user-directed restore; verbatim logic) ----
-_vol_medians = {}
-async def _vol_median_refresher(session):
-    """Sparse REST: per-symbol median 1m quote volume, top symbols, 10 min."""
-    while not _shutdown.is_set():
-        try:
-            syms = [s for s, _q in sorted(SS.q24.items(), key=lambda kv: -kv[1])[:VOL_MEDIAN_SYMS]]
-            for sym in syms:
-                if _shutdown.is_set(): break
-                try:
-                    async with session.get(f"{FAPI}/fapi/v1/klines",
-                        params={"symbol": sym, "interval": "1m", "limit": 10},
-                        timeout=aiohttp.ClientTimeout(total=8)) as r:
-                        if r.status == 200:
-                            kl = await r.json()
-                            if isinstance(kl, list) and len(kl) >= 6:
-                                qvs = [float(k[7]) for k in kl[:-1]]
-                                _vol_medians[sym] = statistics.median(qvs)
-                except Exception: pass
-                await asyncio.sleep(0.05)
-        except Exception as e: print(f"[warn ] vol-median refresh: {e}")
-        await asyncio.sleep(VOL_MEDIAN_REFRESH_SEC)
+def _trade_pace(sym, now):
+    """v4.6.3 verbatim: disjoint complete-second windows — 15s recent burst vs
+    the PRECEDING 180s baseline (no self-inclusion). Requires a full fresh
+    subscription (195s warmup) and a live feed."""
+    end = int(now)
+    split = end - EXPLOSION_PACE_SEC
+    start = split - EXPLOSION_BASE_SEC
+    st = SS.t1s.get(sym)
+    if not st or not st["started"] or st["started"] > start: return None
+    if now - SS.trade_last_msg > 5.0: return None
+    dq = st["dq"]
+    recent = sum(r[5] for r in dq if split <= r[0] < end)
+    prior = sum(r[5] for r in dq if start <= r[0] < split)
+    base = max(prior / EXPLOSION_BASE_SEC, SS.q24.get(sym, 0) / 86400.0, 1.0)
+    return recent / EXPLOSION_PACE_SEC, base
 
-def _explosion_accumulate(sym, vol_delta, px, now):
-    """v4.6.4 verbatim: q24 deltas consumed EXACTLY ONCE (stream_reader passes
-    them atomically with the tick). Negative rolling-window deltas ignored
-    (documented q24 limitation). Projects the minute's volume pace; fires
-    seconds 3–10 on ≥20x median AND ≥1% move; one shot per minute bucket."""
+def _explosion_check(session, now):
+    """v4.6.3 detection verbatim: pace ≥20× baseline AND ≥1% move in 60s,
+    fires seconds 3–10 of the move, 120s refractory. Runs regardless of the
+    live flag — fills land as PAPER positions until NEXUS_EXPLOSION_LIVE=1.
+    (v4.7.1: ENABLE_EXPLOSION=False actually disables detection now — the
+    flag was decorative in v4.7.0 while the banner said OFF.)"""
     if not ENABLE_EXPLOSION or not IS_SCANNER: return
-    if vol_delta is None or vol_delta <= 0: return
-    med = _vol_medians.get(sym)
-    if not med or med <= 0: return
-    bucket = int(now // 60)
-    st = SS.exp_acc.get(sym)
-    if st is None or st[0] != bucket:
-        dq = SS.px_windows.get(sym)
-        first_px = dq[0][1] if (dq and dq[0][0] >= bucket * 60 - 5) else px
-        st = SS.exp_acc[sym] = [bucket, 0.0, first_px]
-    st[1] += vol_delta
-    elapsed = now - bucket * 60.0
-    if elapsed < EXPLOSION_EARLY_MIN_SEC or elapsed > EXPLOSION_EARLY_SEC: return
-    if SS.exp_fired.get(sym) == bucket: return
-    if not px or px <= 0: return
-    projected = (st[1] / elapsed) * 60.0
-    mult = projected / med
-    if mult < EXPLOSION_VOL_X: return
-    first_px = st[2]
-    if not first_px or first_px <= 0: return
-    move = (px / first_px - 1.0) * 100.0
-    if abs(move) < EXPLOSION_MIN_MOVE_PCT:
-        decide("skip", sym, "explosion_no_move", {"mult": mult, "move": move}); return
-    direction = "up" if move > 0 else "down"
-    SS.exp_fired[sym] = bucket
-    print(f"[{hms()}] [sig  ] {sym} 💥EXPLOSION-IN-PROGRESS: ${st[1]:,.0f}$ in {elapsed:.0f}s "
-          f"(pace {mult:.0f}x median), move {move:+.2f}% → {direction.upper()}")
-    if SS.pendings.get(sym) or symbol_busy(sym): return
-    limit_px = px * (1 - EXPLOSION_PULLBACK_PCT / 100.0) if direction == "up" \
-        else px * (1 + EXPLOSION_PULLBACK_PCT / 100.0)
-    SS.pendings[sym] = {"symbol": sym, "direction": direction, "level": limit_px,
-                        "trigger_px": px, "ts": now}
-    decide("explosion_place", sym, "pullback_parked",
-           {"dir": direction, "pace_mult": mult, "move": move, "limit": limit_px})
-    print(f"[{hms()}] [pb   ] {sym} explosion pullback "
-          f"{'BUY' if direction == 'up' else 'SELL'} @{limit_px:.6g} parked")
+    for sym in list(SS.t1s.keys()):
+        rates = _trade_pace(sym, now)
+        if rates is None: continue
+        pace, base = rates
+        px = stream_price(sym)
+        if not px or px <= 0: continue
+        p60 = _px_ago(sym, now, 60.0)
+        mv = (px / p60 - 1.0) * 100.0 if p60 else 0.0
+        st = SS.move_state.get(sym)
+        if st and (abs(mv) < 0.6 or (mv > 0) != (st["dir"] > 0)):
+            SS.move_state.pop(sym, None); st = None
+        if abs(mv) < EXPLOSION_MIN_MOVE_PCT: continue
+        if st is None:
+            SS.move_state[sym] = {"start": now, "dir": 1 if mv > 0 else -1}
+            continue
+        age = now - st["start"]
+        if age > EXPLOSION_EARLY_SEC:
+            st["start"] = now
+            continue
+        if age < EXPLOSION_EARLY_MIN_SEC: continue
+        if pace / base < EXPLOSION_VOL_X: continue
+        if now - SS.exp_fired.get(sym, 0.0) < EXPLOSION_REFRACT_SEC: continue
+        if symbol_busy(sym): continue
+        SS.exp_fired[sym] = now
+        d = "up" if st["dir"] > 0 else "down"
+        level = px * (1 - EXPLOSION_PULLBACK_PCT / 100.0) if d == "up" \
+                else px * (1 + EXPLOSION_PULLBACK_PCT / 100.0)
+        SS.pendings[sym] = {"dir": d, "level": level, "ts": now, "ref": px}
+        decide("watch", sym, "explosion_armed",
+               {"dir": d, "pace_x": round(pace / base, 1), "level": level})
+        print(f"[{hms()}] [sig  ] {sym} 💥EXPLOSION armed ({pace/base:.0f}x trade pace, "
+              f"{mv:+.2f}%/60s) → pullback {'BUY' if d=='up' else 'SELL'} @{level:.6g}")
 
 def _check_explosion_fills(session, now):
-    """v4.6.4 hybrid fill WITH knife-guard (user-directed restore). Fills book
-    the limit price after a favorable (decelerating) tick; a falling (for a
-    BUY) touch does not fill. TTL 120s."""
+    """v4.6.2/4.6.3 fill semantics: RESTING ORDER — fills at the level when
+    touched (no knife-guard; that was the v4.5.2 machine). TTL 120s."""
     for sym, p in list(SS.pendings.items()):
         if now - p["ts"] > EXPLOSION_PB_TTL_SEC:
-            del SS.pendings[sym]; decide("expire", sym, "explosion_pb_timeout", {}); continue
-        dq = SS.px_windows.get(sym)
-        if not dq or len(dq) < 2: continue
-        px = dq[-1][1]; prev = dq[-2][1]
-        hit = (px <= p["level"]) if p["direction"] == "up" else (px >= p["level"])
+            SS.pendings.pop(sym, None); decide("expire", sym, "explosion_pb_timeout", {}); continue
+        px = stream_price(sym)
+        if not px or px <= 0: continue
+        hit = px <= p["level"] if p["dir"] == "up" else px >= p["level"]
         if not hit: continue
-        if p["direction"] == "up" and px < prev: continue    # knife-guard
-        if p["direction"] == "down" and px > prev: continue  # knife-guard
-        del SS.pendings[sym]
-        decide("explosion_fill", sym, "filled", {"limit": p["level"], "px": px})
-        print(f"[{hms()}] [sig  ] {sym} 💥EXPLOSION pullback fill @{px:.6g} (knife-guard OK)")
-        spawn_entry(_explosion_open(session, p))
+        SS.pendings.pop(sym, None)
+        print(f"[{hms()}] [sig  ] {sym} 💥EXPLOSION pullback touched {p['level']:.6g} "
+              f"→ {'LONG' if p['dir']=='up' else 'SHORT'}")
+        spawn_entry(_explosion_open(session, sym, p["dir"], p["level"]))
 
-async def _explosion_open(session, p):
-    """v4.6.4 fill-time admission — ALL checks re-run (detection up to 120s
-    stale). No direction caps (v4.8). Full size."""
-    key = (p["symbol"], "EXPLOSION")
+async def _explosion_open(session, sym, direction, level):
+    """Fill-time admission. v4.6.3 checks minus the deleted ones (daily-loss,
+    rearm, brain veto — all retired). Paper flag per NEXUS_EXPLOSION_LIVE.
+    (_final_admission / open_position defined in Part 3.)"""
+    key = (sym, "EXPLOSION")
     if key in SS.confirming: return
     SS.confirming.add(key)
     try:
-        if kill_now() or _shutdown.is_set(): decide("skip", p["symbol"], "killed", {}); return
-        if symbol_busy(p["symbol"]): decide("reject", p["symbol"], "explosion_busy", {}); return
+        if kill_now() or _shutdown.is_set(): decide("skip", sym, "killed", {}); return
+        if symbol_busy(sym): decide("reject", sym, "explosion_busy", {}); return
         if len(open_positions()) >= MAX_CONCURRENT:
-            decide("reject", p["symbol"], "explosion_capacity", {}); return
-        _imb, spread = await fetch_book_data(SESSION_M, p["symbol"])
-        tier = _final_admission(p["symbol"], "EXPLOSION", p["direction"], p["level"])
+            decide("reject", sym, "explosion_capacity", {}); return
+        if not _direction_cap_ok(direction):
+            decide("reject", sym, "explosion_dir_cap", {}); return
+        _imb, spread = await fetch_book_data(SESSION_M, sym)
+        tier = _final_admission(sym, "EXPLOSION", direction, level)
         if tier is None:
-            decide("reject", p["symbol"], "explosion_final_admission", {}); return
-        open_position("EXPLOSION", tier, p["symbol"], p["direction"], p["level"],
-                      spread=spread, trigger_ts=now_ts(), btc_regime=_regime_tag())
-    except Exception as e: print(f"[{hms()}] [err  ] explosion open {p['symbol']}: {e!r}")
+            decide("reject", sym, "explosion_final_admission", {}); return
+        open_position("EXPLOSION", tier, sym, direction, level, spread=spread,
+                      trigger_ts=now_ts(), size_mult=0.5, paper=0 if EXPLOSION_LIVE else 1,
+                      btc_regime=_regime_tag())
+    except Exception as e: print(f"[{hms()}] [err  ] explosion open {sym}: {e!r}")
     finally: SS.confirming.discard(key)
 
 # ================================================================ 1s RECORDER (evidence layer)
@@ -1461,6 +1378,7 @@ def _check_stream_triggers(session, now):
     Detection is SCANNER-only: in split mode the trader runs the same ticker
     feed for prices (stream_price/_btc_hot/regime) but never detects."""
     if not IS_SCANNER: return
+    _explosion_check(session, now)
     _check_explosion_fills(session, now)
     _rev_episode_scan(session, now)
     for sym, dq in list(SS.px_windows.items()):
@@ -1521,10 +1439,7 @@ async def stream_reader():
                         px = float(item.get("c") or 0)
                         q24 = float(item.get("q") or 0)
                         if px <= 0: continue
-                        prev_q = SS.q24.get(sym)
                         _record_tick(sym, px, q24, now)
-                        if prev_q is not None:
-                            _explosion_accumulate(sym, q24 - prev_q, px, now)
                     _check_stream_triggers(SESSION_M, now_ts())
         except asyncio.CancelledError: raise
         except Exception as e:
@@ -1536,8 +1451,8 @@ async def stream_reader():
         if not _shutdown.is_set(): await asyncio.sleep(5)
 
 async def trade_reader():
-    """aggTrade feed — the 1s recorder evidence layer (bars_1s for the replay/
-    autopsy DB; FOLLOWER's volume guard reads it too). Infra fixes carried:
+    """aggTrade feed — the restored v4.6.3 subsystem (EXPLOSION + 1s recorder
+    evidence). v4.7 infra fixes applied:
       · staleness is ONE-SIDED (only past-stale >30s restarts; future-skewed
         host clocks can no longer cause an infinite reconnect loop)
       · subscription overshoot DEGRADES (top-by-q24 within the 1024 cap,
@@ -1600,31 +1515,20 @@ async def trade_reader():
 # ═══════════════════════════════ END PART 2/4 ═══════════════════════════════
 # Part 3/4 begins at: # ============ 15M/1H KLINE CACHE + LANES
 # ================================================================ 15M/1H KLINE CACHE
-_k15 = {}      # sym → {"bars": deque[(open_ms,o,h,l,c,q)] closed 15m, "hi24": px, "lo24": px}
-_k1h = {}      # sym → deque[(open_ms,o,h,l,c,q)] closed 1h, 168 = 7d (SQUEEZE)
+_k15 = {}   # sym → {"bars": deque[(open_ms,o,h,l,c,q)] closed 15m, "hi24": px, "lo24": px}
+_k1h = {}   # sym → deque[(open_ms,o,h,l,c,q)] closed 1h, 168 = 7d (SQUEEZE)
 _k1h_fail = {}
-_k15_seen = {} # sym → ts of last 15m fetch attempt (rotation order)
-_k1h_seen = {} # sym → ts of last 1h fetch
 def _cdir(bar): return 1 if bar[4] > bar[1] else (-1 if bar[4] < bar[1] else 0)
 
 async def k_cache_refresher(session):
-    """v4.8.2: CONTINUOUS rotation, stalest symbol first — the 300s cycle is
-    gone. The 15m close is trigger food for SGRIND/SGREV/PFADE/DDv2/
-    FAILBREAK/SQUEEZE/BURST, and a newly closed candle used to sit
-    undiscovered for up to ~6 min (the break-trigger lanes skip stale
-    setups, so slow discovery = lost trades). Worst-case staleness is now
-    one sweep (~30-45s for the top-150). 1h candles (SQUEEZE only) ride the
-    same loop on a slower K1H_REFRESH_SEC cadence."""
-    last_note = 0.0
+    """One worker, two caches, top-150 by q24. 15m: 96 closed bars = 24h
+    (DDv2 latch, SGRIND streaks, PFADE structure, FAILBREAK 12h high, DAYOPEN).
+    1h: 168 bars = 7d (SQUEEZE width percentile + ATR)."""
     while not _shutdown.is_set():
         try:
             syms = [s for s, _q in sorted(SS.q24.items(), key=lambda kv: -kv[1])[:K15_SYMS]]
-            if not syms:
-                await asyncio.sleep(1.0); continue
-            syms.sort(key=lambda s: _k15_seen.get(s, 0.0))   # stalest first
             for sym in syms:
                 if _shutdown.is_set(): break
-                now = now_ts()
                 try:
                     async with session.get(f"{FAPI}/fapi/v1/klines",
                         params={"symbol": sym, "interval": "15m", "limit": K15_LIMIT},
@@ -1638,30 +1542,26 @@ async def k_cache_refresher(session):
                                              "hi24": max(b[2] for b in bars),
                                              "lo24": min(b[3] for b in bars)}
                 except Exception: pass
-                _k15_seen[sym] = now
-                if now - _k1h_seen.get(sym, 0.0) > K1H_REFRESH_SEC:
-                    try:
-                        async with session.get(f"{FAPI}/fapi/v1/klines",
-                            params={"symbol": sym, "interval": "1h", "limit": K1H_LIMIT},
-                            timeout=aiohttp.ClientTimeout(total=8)) as r:
-                            if r.status == 200:
-                                kl = await r.json()
-                                if isinstance(kl, list) and len(kl) >= 40:
-                                    _k1h[sym] = deque(((int(k[0]), float(k[1]), float(k[2]), float(k[3]),
-                                                        float(k[4]), float(k[5])) for k in kl[:-1]), maxlen=K1H_LIMIT)
-                    except Exception: pass
-                    _k1h_seen[sym] = now
-                await asyncio.sleep(K15_PACE_SEC)
+                try:
+                    async with session.get(f"{FAPI}/fapi/v1/klines",
+                        params={"symbol": sym, "interval": "1h", "limit": K1H_LIMIT},
+                        timeout=aiohttp.ClientTimeout(total=8)) as r:
+                        if r.status == 200:
+                            kl = await r.json()
+                            if isinstance(kl, list) and len(kl) >= 40:
+                                _k1h[sym] = deque(((int(k[0]), float(k[1]), float(k[2]), float(k[3]),
+                                                    float(k[4]), float(k[5])) for k in kl[:-1]), maxlen=K1H_LIMIT)
+                except Exception: pass
+                await asyncio.sleep(0.05)
             if _shutdown.is_set(): break
-            if _k15 and now_ts() - last_note > 300.0:
-                print(f"[{hms()}] [k15  ] rotating: {len(_k15)} symbols, oldest-first (continuous)")
-                last_note = now_ts()
+            if _k15: print(f"[{hms()}] [k15  ] cache refreshed: {len(_k15)} symbols")
+            await asyncio.sleep(K15_REFRESH_SEC)
         except Exception as e:
             print(f"[warn ] k cache: {e!r}")
-            await asyncio.sleep(5)
+            await asyncio.sleep(30)
 
 # ================================================================ DEEPDIP v2 (PAPER — the 2-green-candle relaunch)
-_dd2_watch = {}
+_dd2_watch = {}; _dd2_cooldown = {}
 def _dd2_scan(session, now):
     """Latch ≥20% below rolling 24h high (measured at the low; expires 24h) →
     X owns velocity episodes → 2 consecutive positive 15m candles (close>open)
@@ -1678,7 +1578,7 @@ def _dd2_scan(session, now):
                 del _dd2_watch[sym]; decide("expire", sym, "dd2_latch_expired", {}); continue
             # stop-of-record check on the live price (kill the thesis)
             if px <= w["low"] * (1 - DD2_STOP_BUF / 100.0):
-                del _dd2_watch[sym]
+                del _dd2_watch[sym]; _dd2_cooldown[sym] = now
                 decide("skip", sym, "dd2_new_low", {"low": w["low"]}); continue
             # 2 consecutive positive candles on CLOSED bars
             last_open = bars[-1][0]
@@ -1689,15 +1589,16 @@ def _dd2_scan(session, now):
                     stop_px = w["low"] * (1 - DD2_STOP_BUF / 100.0)
                     dist = (px / stop_px - 1.0) * 100.0
                     if dist > DD2_MAX_STOP_DIST:
-                        del _dd2_watch[sym]
+                        del _dd2_watch[sym]; _dd2_cooldown[sym] = now
                         decide("skip", sym, "dd2_stop_too_far", {"dist": round(dist, 2)}); continue
-                    del _dd2_watch[sym]
-                    print(f"[{hms()}] [sig  ] {sym} 🕳DEEPDIP v2: 2x green 15m off "
+                    del _dd2_watch[sym]; _dd2_cooldown[sym] = now
+                    print(f"[{hms()}] [sig  ] {sym} 🕳DEEPDIP v2 (PAPER): 2x green 15m off "
                           f"{w['low']:.6g} (latched -{w['drop']:.0f}%) → LONG")
                     _mark_signal(sym, "DEEPDIP_V2", now)
                     _signal(session, sym, "DEEPDIP_V2", "up", px, now,
-                            episode_id=w["ep_id"])
+                            episode_id=w["ep_id"], paper=True)
             continue
+        if _dd2_cooldown.get(sym, 0) and now - _dd2_cooldown[sym] < DD2_COOLDOWN_SEC: continue
         hi = cache.get("hi24")
         if hi and (px / hi - 1.0) * 100.0 <= -DD2_DROP_PCT:
             # X ownership is classified async at arm (5m klines, below)
@@ -1725,6 +1626,7 @@ async def _dd2_classify(session, sym, now, w):
         if drop >= DIPX_DROP_PCT:
             if _dd2_watch.get(sym) is w:
                 del _dd2_watch[sym]
+                _dd2_cooldown[sym] = now
                 print(f"[{hms()}] [watch] {sym} DIP-X owns this episode (-{drop:.0f}%/45m) — v2 stands down")
                 decide("skip", sym, "dd2_yields_to_x", {"drop": round(drop, 2)})
     except Exception as e:
@@ -1761,117 +1663,40 @@ def _dipx_scan(session, now):
                 print(f"[{hms()}] [watch] {sym} 🕳🕳DIP-X armed (≥{DIPX_DROP_PCT:.0f}% in 45m)")
                 decide("watch", sym, "dipx_armed", {"low": px})
 
-# ================================================================ SGRIND (continuation — v4.6.4/v4.7.2 behavior restored)
-_sg_last_bar = {}
+# ================================================================ SGRIND (unchanged)
+_sg_last_bar = {}; _sg_cooldown = {}
 def _sg_scan(session, now):
-    """4-6 consecutive same-direction 15m candles (>=2% close-to-close), then
-    1 opposite CLOSED candle + price extending it → enter WITH the grind.
-    v4.6.4 nuance kept: a 7+ candle streak is rejected. Forced SWING;
-    flexible per-coin cooldown (v4.8)."""
+    """4–6 consecutive same-direction 15m candles, cumulative ≥2%, then 1
+    opposite closed candle + price extending it → enter WITH the grind."""
     if not ENABLE_SGRIND or not IS_SCANNER: return
     for sym, cache in list(_k15.items()):
         bars = list(cache["bars"])
         if len(bars) < SG_MIN_CANDLES + 2: continue
         last_open = bars[-1][0]
-        if _sg_last_bar.get(sym) == last_open: continue   # evaluate once per closed candle
+        if _sg_last_bar.get(sym) == last_open: continue
         _sg_last_bar[sym] = last_open
-        d = _cdir(bars[-2])                    # direction of the candle before the opposite one
-        if d == 0 or _cdir(bars[-1]) != -d: continue    # need 1 closed OPPOSITE candle
+        if _sg_cooldown.get(sym, 0) and now - _sg_cooldown[sym] < SG_COOLDOWN_SEC: continue
+        d = _cdir(bars[-2])
+        if d == 0 or _cdir(bars[-1]) != -d: continue
         streak = 0; i = len(bars) - 2
         while i >= 0 and _cdir(bars[i]) == d and streak <= SG_MAX_CANDLES:
             streak += 1; i -= 1
         if not (SG_MIN_CANDLES <= streak <= SG_MAX_CANDLES): continue
-        start = len(bars) - 1 - streak          # first streak bar index
+        start = len(bars) - 1 - streak
         base = bars[start - 1][4] if start >= 1 else bars[start][1]
         grind = (bars[len(bars) - 2][4] / base - 1.0) * 100.0
         if d > 0 and grind < SG_MIN_STREAK_PCT: continue
         if d < 0 and grind > -SG_MIN_STREAK_PCT: continue
         px = stream_price(sym)
         if not px or px <= 0: continue
-        # "1.5 candles": price must be extending the pullback beyond the
-        # opposite candle's extreme
         if d > 0 and px > bars[-1][3]: continue     # up-grind: price below the down-candle's low
         if d < 0 and px < bars[-1][2]: continue     # down-grind: price above the up-candle's high
         direction = "up" if d > 0 else "down"
+        _sg_cooldown[sym] = now
         print(f"[{hms()}] [sig  ] {sym} 🐌SGRIND {streak}x15m {grind:+.1f}% → pullback "
               f"{'LONG' if direction=='up' else 'SHORT'} (with trend)")
         _mark_signal(sym, "SGRIND", now)
         _signal(session, sym, "SGRIND", direction, px, now)
-
-# ================================================================ SGREV (reversal — the v4.8.1 redesign, own A/B lane)
-_sgrev_last_bar = {}; _sgrev_watch = {}
-def _sgrev_scan(session, now):
-    """SGREV — REVERSAL, not continuation: a grind of >=4 same-direction
-    15m candles (any length) with a >=4% move from the first streak candle's
-    OPEN to the streak's most extreme point, then ONE closed opposite candle
-    → during the NEXT candle, a live break of that opposite candle's extreme
-    enters AGAINST the original grind (the turn, not the resumption).
-    Guards: the watch lives only for the candle after the opposite one; it
-    dies if price crosses back past the opposite candle's other extreme
-    (grind resuming); a break that already happened before discovery is
-    skipped, never chased (k15 cache latency). One setup per grind; flexible
-    per-coin cooldown after each trade."""
-    if not ENABLE_SGRIND or not IS_SCANNER: return
-    for sym, cache in list(_k15.items()):
-        bars = list(cache["bars"])
-        if len(bars) < SGREV_MIN_CANDLES + 1: continue
-        px = stream_price(sym)
-        w = _sgrev_watch.get(sym)
-        if w:
-            if w["c1_open"] != bars[-1][0]:
-                del _sgrev_watch[sym]                 # cache advanced — window over
-                w = None
-            elif now * 1000.0 >= w["c2_end_ms"]:
-                del _sgrev_watch[sym]; decide("expire", sym, "sgrev_window_closed", {}); w = None
-            elif not px or px <= 0:
-                pass
-            elif (w["trade_dir"] == "down" and px > w["kill_level"]) or \
-                 (w["trade_dir"] == "up" and px < w["kill_level"]):
-                del _sgrev_watch[sym]; decide("skip", sym, "sgrev_reversal_failed", {}); w = None
-            elif (w["trade_dir"] == "down" and px < w["level"]) or \
-                 (w["trade_dir"] == "up" and px > w["level"]):
-                del _sgrev_watch[sym]
-                print(f"[{hms()}] [sig  ] {sym} 🔄SGREV reversal: {w['streak']}x15m grind "
-                      f"{w['move']:+.1f}% broke the {'low' if w['trade_dir'] == 'down' else 'high'} "
-                      f"{w['level']:.6g} → {'SHORT' if w['trade_dir'] == 'down' else 'LONG'} (against the grind)")
-                _mark_signal(sym, "SGREV", now)
-                _signal(session, sym, "SGREV", w["trade_dir"], px, now)
-                w = None
-            continue                                  # while watching, do not re-arm
-        # arm on a newly closed candle: it must be OPPOSITE to a >=4 grind
-        last_open = bars[-1][0]
-        if _sgrev_last_bar.get(sym) == last_open: continue
-        _sgrev_last_bar[sym] = last_open
-        d = _cdir(bars[-1])                           # just-closed opposite candle
-        if d == 0: continue
-        streak = 0; i = len(bars) - 2                 # count the grind before it
-        while i >= 0 and _cdir(bars[i]) == -d:
-            streak += 1; i -= 1
-        if streak < SGREV_MIN_CANDLES: continue       # 4 or more — no upper limit
-        start = i + 1                                 # first streak bar index
-        base = bars[start][1]                         # first streak candle's OPEN
-        if base <= 0: continue
-        if d < 0:      # up-grind exhausted; opposite candle red → SHORT setup
-            extreme = max(b[2] for b in bars[start:len(bars) - 1])
-            move = (extreme / base - 1.0) * 100.0
-            if move < SGREV_MIN_STREAK_PCT: continue
-            level, kill_level, trade_dir = bars[-1][3], bars[-1][2], "down"
-        else:          # down-grind exhausted; opposite candle green → LONG setup
-            extreme = min(b[3] for b in bars[start:len(bars) - 1])
-            move = (extreme / base - 1.0) * 100.0
-            if move > -SGREV_MIN_STREAK_PCT: continue
-            level, kill_level, trade_dir = bars[-1][2], bars[-1][3], "up"
-        if px and ((trade_dir == "down" and px <= level) or (trade_dir == "up" and px >= level)):
-            decide("skip", sym, "sgrev_stale_break", {"move": round(move, 1)}); continue
-        _sgrev_watch[sym] = {"c1_open": bars[-1][0],
-                             "c2_end_ms": bars[-1][0] + 2 * 15 * 60 * 1000,
-                             "level": level, "kill_level": kill_level,
-                             "trade_dir": trade_dir, "streak": streak, "move": round(move, 1)}
-        print(f"[{hms()}] [watch] {sym} 🔄SGREV reversal armed: {streak}x15m grind {move:+.1f}% "
-              f"→ live break of {'low' if trade_dir == 'down' else 'high'} {level:.6g} "
-              f"→ {'SHORT' if trade_dir == 'down' else 'LONG'} (against the grind)")
-        decide("watch", sym, "sgrev_reversal_armed",
-               {"streak": streak, "move": round(move, 1), "level": level})
 
 # ================================================================ BURST (PAPER — intrabar momentum continuation)
 _burst_watch = {}; _burst_cooldown = {}
@@ -1886,7 +1711,7 @@ def _c2_open(sym, c2_open_ms):
     return None
 
 def _burst_scan(session, now):
-    """BURST: candle-1 15m body ≥±5% (close vs open) → candle-2 opens
+    """BURST (PAPER): candle-1 15m body ≥±5% (close vs open) → candle-2 opens
     with the move (gap ≤2% beyond candle-1 close) → LIVE tick breaking
     candle-1's HIGH while candle-2 runs green → LONG; mirror on the LOW while
     red → SHORT. Intrabar by design: entry at the break moment, no candle-2
@@ -1944,17 +1769,17 @@ def _burst_scan(session, now):
         del _burst_watch[sym]; _burst_cooldown[sym] = now
         direction = "up" if w["dir"] > 0 else "down"
         side = "high" if w["dir"] > 0 else "low"
-        print(f"[{hms()}] [sig  ] {sym} 🔆BURST: candle-2 broke candle-1 {side} "
+        print(f"[{hms()}] [sig  ] {sym} 🔆BURST (PAPER): candle-2 broke candle-1 {side} "
               f"{w['level']:.6g} (body {w['body']:+.1f}%) → {'LONG' if direction == 'up' else 'SHORT'}")
         _mark_signal(sym, "BURST", now)
         _signal(session, sym, "BURST", direction, px, now)
 
 # ================================================================ PFADE (re-long leg OI/funding-CONFIRMED)
-_pf_relong = {}
+_pf_relong = {}; _pf_cooldown = {}
 def _pf_scan(session, now):
     """SHORT: ≥20% over 24h low → first 15m close below prior 15m low (SCALP,
     half). Re-long: 2x 15m no-new-low AND (OI Δ≤-3% since trigger OR funding
-    ≤-0.10%) → LONG (SWING, full). Confirmed re-long per v4.7 spec. Flexible cd (v4.8)."""
+    ≤-0.10%) → LONG (SWING, full). Confirmed re-long per v4.7 spec."""
     if not ENABLE_PFADE or not IS_SCANNER: return
     for sym, cache in list(_k15.items()):
         bars = list(cache["bars"])
@@ -1971,7 +1796,7 @@ def _pf_scan(session, now):
             # episode first and symbol_busy threw it away
             if rl.get("confirmed") and rl["ok"] >= PF_STAB_CANDLES:
                 if symbol_busy(sym): continue          # retry next poll (3s)
-                del _pf_relong[sym]
+                del _pf_relong[sym]; _pf_cooldown[sym] = now
                 print(f"[{hms()}] [sig  ] {sym} 🚀PFADE re-long CONFIRMED "
                       f"({rl['confirm_reason']}) after {PF_STAB_CANDLES}x15m no-new-low")
                 _mark_signal(sym, "PFADE", now)
@@ -1989,11 +1814,13 @@ def _pf_scan(session, now):
                 rl["confirming"] = True
                 _bg(_pf_confirm_relong(session, sym, now, rl))
             continue
+        if _pf_cooldown.get(sym, 0) and now - _pf_cooldown[sym] < PF_COOLDOWN_SEC: continue
         lo24 = min(cache.get("lo24") or 0, px)
         if lo24 <= 0: continue
         run = (px / lo24 - 1.0) * 100.0
         if run < PF_MIN_RUN_PCT: continue
         if bars[-1][4] < bars[-2][3]:
+            _pf_cooldown[sym] = now
             print(f"[{hms()}] [sig  ] {sym} 🚀PFADE short: +{run:.0f}% over 24h low, "
                   f"15m close {bars[-1][4]:.6g} < prior low {bars[-2][3]:.6g}")
             _mark_signal(sym, "PFADE", now)
@@ -2025,7 +1852,7 @@ async def _pf_confirm_relong(session, sym, now, rl):
         rl["confirming"] = False
 
 # ================================================================ FAILBREAK (PAPER)
-_fb_state = {}
+_fb_state = {}; _fb_cooldown = {}
 def _fb_scan(session, now):
     """15m close ≥0.3% above rolling 12h high with breakout volume <2× the
     50-candle median → close back below the 12h high within 2 candles →
@@ -2048,7 +1875,7 @@ def _fb_scan(session, now):
             if st["closes"] == 0 and c1[4] < st["hi12"]:
                 # failed within the 2-candle window → SHORT (PAPER)
                 del _fb_state[sym]; _fb_cooldown[sym] = now
-                print(f"[{hms()}] [sig  ] {sym} 🪤FAILBREAK: break to {st['break_px']:.6g} "
+                print(f"[{hms()}] [sig  ] {sym} 🪤FAILBREAK (PAPER): break to {st['break_px']:.6g} "
                       f"(vol {st['vol_x']:.1f}x) failed → SHORT")
                 _mark_signal(sym, "FAILBREAK", now)
                 _signal(session, sym, "FAILBREAK", "down", px, now,
@@ -2058,6 +1885,7 @@ def _fb_scan(session, now):
             else:
                 st["closes"] += 1
             continue
+        if _fb_cooldown.get(sym, 0) and now - _fb_cooldown[sym] < 7200.0: continue
         # prior-12h high EXCLUDES the breakout candle itself: v4.7.0 compared
         # the close against a max that included the candle's own high, which
         # close ≤ high can never satisfy — the lane could not arm at all
@@ -2102,7 +1930,7 @@ def _sq_scan(session, now):
             if vol_ok and (broke_up or broke_dn):
                 del _sq_armed[sym]
                 d = "up" if broke_up else "down"
-                print(f"[{hms()}] [sig  ] {sym} 🧨SQUEEZE: {st['width_pct']:.1f}% 12h range "
+                print(f"[{hms()}] [sig  ] {sym} 🧨SQUEEZE (PAPER): {st['width_pct']:.1f}% 12h range "
                       f"broke {'UP' if broke_up else 'DOWN'} on {last15[5]/med_q:.1f}x volume")
                 _mark_signal(sym, "SQUEEZE", now)
                 _signal(session, sym, "SQUEEZE", d, px, now,
@@ -2203,7 +2031,7 @@ def _follower_confirm(session, now):
             del _follower_cand[sym]
             sign = 1.0 if c["dir"] == "up" else -1.0
             tp = px * (1.0 + sign * FOLLOW_CAPTURE * abs(c["btc_mv"]) / 100.0)
-            print(f"[{hms()}] [sig  ] {sym} 🐦FOLLOWER: confirmed {c['dir']} "
+            print(f"[{hms()}] [sig  ] {sym} 🐦FOLLOWER (PAPER): confirmed {c['dir']} "
                   f"(60s {mv:+.2f}%, BTC {c['btc_mv']:+.1f}%) → TP {tp:.6g}")
             _mark_signal(sym, "FOLLOWER", now)
             _signal(session, sym, "FOLLOWER", c["dir"], px, now,
@@ -2242,9 +2070,10 @@ def _final_admission(sym, etype, direction, px, paper=False):
     if sym in STABLE_SYMBOLS: return None
     if symbol_busy(sym): return None
     if not paper:
-        if len(open_positions()) >= MAX_CONCURRENT:
+        if len(open_positions()) >= MAX_CONCURRENT or not _direction_cap_ok(direction):
             return None
         if etype in DIP_LANES and not _dip_budget_ok(): return None
+    if etype in ("REV", "FUNDING_SQZ") and _is_vertical(sym, now_ts()): return None
     if etype == "REV":
         brain = _brain_snapshot()
         _brain_cache["ts"] = 0.0
@@ -2256,12 +2085,12 @@ def _final_admission(sym, etype, direction, px, paper=False):
     if etype == "SQUEEZE":     return "SWING"
     if etype == "FOLLOWER":    return "SCALP"
     if etype == "PFADE":       return "SCALP" if direction == "down" else "SWING"
-    if etype in ("SGRIND", "SGREV"): return "SWING"   # continuation v4.6.4 + reversal v4.8.1
+    if etype == "EXPLOSION":   return "SCALP"
     return "SCALP" if _brain_agrees(sym, direction) else "SWING"
 
 LANE_SIZE_MULT = {
-    # v4.8: only FSQZ + DIP-X stay half; every other lane trades FULL
-    "FUNDING_SQZ": 0.5, "DEEPDIP_X": 0.5,
+    "FUNDING_SQZ": 0.5, "DEEPDIP_X": 0.5, "DEEPDIP_V2": 0.5, "FAILBREAK": 0.5,
+    "SQUEEZE": 0.5, "FOLLOWER": 0.5, "EXPLOSION": 0.5, "BURST": 0.5,
 }
 
 def _emit_signal(sym, etype, direction, sig_px, now, **payload):
@@ -2286,12 +2115,13 @@ def _signal(session, sym, etype, direction, px, now, payload=None,
     if kill_now() or _shutdown.is_set(): return
     if sym in STABLE_SYMBOLS: return
     if symbol_busy(sym): decide("skip", sym, "symbol_busy", {"etype": etype}); return
-    if not _lane_cooldown_ok(sym, etype, now):
-        decide("skip", sym, "lane_cooldown", {"etype": etype}); return
+    if etype in ("REV", "FUNDING_SQZ") and _is_vertical(sym, now):
+        decide("veto", sym, "vertical_chase", {"etype": etype}); return
     brain = _brain_snapshot()
     if etype == "REV" and (brain["exh"].get(sym) or 0) >= VETO_EXH_MAX:
         decide("veto", sym, "exhaustion", {"exh": brain["exh"].get(sym)}); return
-    # v4.8: every lane trades REAL (paper plumbing kept for tests only)
+    paper = paper or etype in ("DEEPDIP_V2", "FAILBREAK", "SQUEEZE", "FOLLOWER", "BURST") \
+            or (etype == "EXPLOSION" and not EXPLOSION_LIVE)
     if NEXUS_ROLE == "scanner":
         if _emit_signal(sym, etype, direction, px, now,
                         paper=paper, episode_id=episode_id, **(payload or {})):
@@ -2365,6 +2195,11 @@ def open_position(lane, tier, symbol, direction, entry, spread=None, trigger_ts=
         n = c.execute("SELECT COUNT(*) FROM shadow_positions WHERE status='OPEN' AND paper=0").fetchone()[0]
         if not paper and n >= MAX_CONCURRENT:
             c.rollback(); decide("reject", symbol, "capacity_atomic", {}); return False
+        same = c.execute("SELECT COUNT(*) FROM shadow_positions WHERE status='OPEN' AND direction=? AND paper=0",
+                         (direction,)).fetchone()[0]
+        cap = DIRECTION_CAP_BTC_HOT if _btc_hot else DIRECTION_CAP_BTC_CALM
+        if not paper and same >= cap:
+            c.rollback(); decide("reject", symbol, "direction_cap_atomic", {}); return False
         if not paper and lane in DIP_LANES:
             dips = c.execute("SELECT COUNT(*) FROM shadow_positions WHERE status='OPEN' AND paper=0 AND lane IN "
                              + "(".join("?" * len(DIP_LANES)), DIP_LANES).fetchone()[0]
@@ -2392,7 +2227,7 @@ def open_position(lane, tier, symbol, direction, entry, spread=None, trigger_ts=
         print(f"[OPEN ] [{pfx}{lane}/{tier}] {symbol} {direction.upper()} @{entry:.6g} "
               f"notional ${notional:.0f}{sz} SL {sl:.6g} (-{sl_pct:.1f}% HARD) hold {hold:.0f}m spread {sp_s}")
         tag = {"REV": "⚡", "FUNDING_SQZ": "🧲", "DEEPDIP_X": "🕳🕳", "DEEPDIP_V2": "🕳",
-               "SGRIND": "🐌", "SGREV": "🔄", "PFADE": "🚀", "FAILBREAK": "🪤", "SQUEEZE": "🧨",
+               "SGRIND": "🐌", "PFADE": "🚀", "FAILBREAK": "🪤", "SQUEEZE": "🧨",
                "FOLLOWER": "🐦", "EXPLOSION": "💥"}.get(lane, lane)
         notify(SESSION_M,
                f"{tag} {'PAPER · ' if paper else ''}{tier} — SHADOW OPEN {symbol} {direction.upper()}\n"
@@ -2449,15 +2284,13 @@ def close_position(pos, exit_price, side, maker=False, level=None):
                          ON CONFLICT(day) DO UPDATE SET realized=realized+?, trades=trades+1""", (day, net, net))
         c.commit()
     finally: c.close()
-    if pos["lane"] in FLEX_CD_LANES:
-        _set_lane_cooldown(pos["symbol"], pos["lane"], net)
     n_trades, tot = total_stats()
     mk = " (maker)" if maker else ""
     pfx = "PAPER " if paper else ""
     print(f"[CLOSE] [{pfx}{pos['lane']}/{pos.get('tier')}] {pos['symbol']} {side}{mk} {move:+.2f}% "
           f"net {net:+.2f} (held {hold_min:.1f}m MFE {mfe or 0:+.2f}% MAE {mae or 0:+.2f}%) | day {daily_realized(day):+.2f}")
     tag = {"REV": "⚡", "FUNDING_SQZ": "🧲", "DEEPDIP_X": "🕳🕳", "DEEPDIP_V2": "🕳",
-           "SGRIND": "🐌", "SGREV": "🔄", "PFADE": "🚀", "FAILBREAK": "🪤", "SQUEEZE": "🧨",
+           "SGRIND": "🐌", "PFADE": "🚀", "FAILBREAK": "🪤", "SQUEEZE": "🧨",
            "FOLLOWER": "🐦", "EXPLOSION": "💥"}.get(pos["lane"], pos["lane"])
     notify(SESSION_M, f"{icon} SHADOW CLOSE [{pfx}{tag}·{pos.get('tier')}] {pos['symbol']} "
                       f"{pos['direction'].upper()} — {side}{mk}\n"
@@ -2666,6 +2499,7 @@ async def signal_consumer():
                         c.execute("UPDATE signals SET state='skipped' WHERE id=?", (r["id"],))
                     continue
                 if symbol_busy(r["symbol"]) or len(open_positions()) >= MAX_CONCURRENT \
+                   or not _direction_cap_ok(r["direction"]) \
                    or (r["lane"] in DIP_LANES and not _dip_budget_ok()):
                     with closing(sdb()) as c, c:
                         c.execute("UPDATE signals SET state='rejected' WHERE id=?", (r["id"],))
@@ -2727,8 +2561,6 @@ async def poll_loop(session):
                 except Exception as e: print(f"[warn ] dipx: {e}")
                 try: _sg_scan(session, now)
                 except Exception as e: print(f"[warn ] sgrind: {e}")
-                try: _sgrev_scan(session, now)
-                except Exception as e: print(f"[warn ] sgrev: {e}")
                 try: _burst_scan(session, now)
                 except Exception as e: print(f"[warn ] burst: {e}")
                 try: _pf_scan(session, now)
@@ -2848,7 +2680,7 @@ def build_report_text(all_versions=False):
              f"cut -{EARLY_CUT_PCT}% · role {NEXUS_ROLE}"]
     for p in opens_r + opens_p:
         tag = {"REV": "⚡", "FUNDING_SQZ": "🧲", "DEEPDIP_X": "🕳🕳", "DEEPDIP_V2": "🕳",
-               "SGRIND": "🐌", "SGREV": "🔄", "PFADE": "🚀", "FAILBREAK": "🪤", "SQUEEZE": "🧨",
+               "SGRIND": "🐌", "PFADE": "🚀", "FAILBREAK": "🪤", "SQUEEZE": "🧨",
                "FOLLOWER": "🐦", "EXPLOSION": "💥"}.get(p.get("lane"), "")
         age = (time.time() - p["entry_ts"]) / 60.0
         pfx = "PAPER " if p.get("paper") else ""
@@ -2863,13 +2695,12 @@ def build_report_text(all_versions=False):
         n_ = len(ts_); wins = sum(1 for t in ts_ if t["net_pnl"] > 0); net = sum(t["net_pnl"] for t in ts_)
         return (f"{name:<12} {n_:>3} tr · win {wins/n_*100:.0f}% · net ${net:+.2f} · exp ${net/n_:+.2f} · "
                 f"MFE {avg([t['mfe_pct'] for t in ts_]):+.2f}% MAE {avg([t['mae_pct'] for t in ts_]):+.2f}%")
-    LIVE_LANES = ("REV", "FUNDING_SQZ", "DEEPDIP_X", "SGRIND", "SGREV", "PFADE", "EXPLOSION",
-                  "DEEPDIP_V2", "FAILBREAK", "SQUEEZE", "FOLLOWER", "BURST")
-    PAPER_LANES = ()
+    LIVE_LANES = ("REV", "FUNDING_SQZ", "DEEPDIP_X", "SGRIND", "PFADE", "EXPLOSION")
+    PAPER_LANES = ("DEEPDIP_V2", "FAILBREAK", "SQUEEZE", "FOLLOWER", "BURST")
     if not real and not pap:
         lines.append("No closed trades yet for this version.")
-        lines.append("Live (all 12): REV v3 · FSQZ · DIP-X · SGRIND(cont) · SGREV(rev) · PFADE · "
-                     "DEEPDIP v2 · FAILBREAK · SQUEEZE · FOLLOWER · BURST · EXPLOSION(v4.6.4)")
+        lines.append("Live: REV v2(tick) · FSQZ(pinned) · DIP-X · SGRIND · PFADE · EXPLOSION(replay-gated)")
+        lines.append("Paper: DEEPDIP v2 · FAILBREAK · SQUEEZE · FOLLOWER · Instrument: OI_FLUSH")
         return "\n".join(lines)
     lines.append("")
     for ln in LIVE_LANES:
@@ -2909,9 +2740,7 @@ def build_report_text(all_versions=False):
     if makers:
         lines.append(f"Maker exits: {len(makers)} · avg slip vs level {avg([t['slip_vs_level'] for t in makers]):+.3f}%")
     GATES = {"REV": (REV_CUTOVER_N, "ge"), "FUNDING_SQZ": (20, "gt"), "DEEPDIP_X": (20, "gt"),
-             "SGRIND": (50, "gt"), "SGREV": (20, "gt"), "PFADE": (20, "gt"), "EXPLOSION": (20, "gt"),
-             "BURST": (20, "gt"), "DEEPDIP_V2": (20, "gt"), "FAILBREAK": (20, "gt"),
-             "SQUEEZE": (20, "gt"), "FOLLOWER": (20, "gt")}
+             "SGRIND": (50, "gt"), "PFADE": (20, "gt"), "EXPLOSION": (20, "gt")}
     gparts = []
     for ln, (need, mode) in GATES.items():
         lt = [t for t in real if t.get("lane") == ln]
@@ -2962,7 +2791,7 @@ def _smoke_test_db():
     """Round-trip: real open/close, PAPER open on the SAME symbol (must be
     allowed — paper never consumes capacity), size_mult, LADDER+CUT sides,
     capacity enforcement. Isolated temp ledger."""
-    global _SDB_PATH, KILL, KILLFILE, TG_ENABLED, _shutdown, NEXUS_ROLE
+    global _SDB_PATH, KILL, KILLFILE, TG_ENABLED, _shutdown, NEXUS_ROLE, EXPLOSION_LIVE
     prev = _SDB_PATH, KILL, KILLFILE, TG_ENABLED, _shutdown
     KILL, KILLFILE, TG_ENABLED, _shutdown = False, "", False, asyncio.Event()
     tmp = tempfile.NamedTemporaryFile(prefix="nexus_smoke_", suffix=".db", delete=False); tmp.close()
@@ -3051,11 +2880,6 @@ def _migration_test_db():
 
 def _numeric_tests():
     """The exact cases that failed historically, as permanent assertions."""
-    global _SDB_PATH
-    prev_db = _SDB_PATH
-    tmp = tempfile.NamedTemporaryFile(prefix="nexus_num_", suffix=".db", delete=False); tmp.close()
-    _SDB_PATH = tmp.name          # isolate: explosion/cooldown tests touch decisions
-    _c = sdb(); _ensure_schema(_c); _c.close()
     problems = []
     # ladder (incl. the RAREUSDT case: peak 1.94 → floor 1.44)
     for pk, want in [(0.79, None), (0.8, 0.3), (1.94, 1.44), (2.99, 2.49), (3.0, 2.0), (3.5, 2.5)]:
@@ -3076,9 +2900,8 @@ def _numeric_tests():
     def ep(low=100.0, low_ts=None, trig=None):
         return {"low": low, "low_ts": low_ts if low_ts is not None else now,
                 "trig_ts": trig if trig is not None else now, "dump": 3.2, "resets": 0}
-    if _rev_tick_ep(ep(), 100.75, now) != "enter": problems.append("rev3: +0.75% bounce must ENTER")
-    if _rev_tick_ep(ep(), 100.74, now) is not None: problems.append("rev3: sub-bounce must keep watching")
-    if _rev_tick_ep(ep(), 100.5, now) is not None: problems.append("rev3: +0.5% below the 0.75% bounce must WATCH")
+    if _rev_tick_ep(ep(), 100.5, now) != "enter": problems.append("rev2: +0.5% bounce must ENTER")
+    if _rev_tick_ep(ep(), 100.49, now) is not None: problems.append("rev2: sub-bounce must keep watching")
     e2 = ep(low_ts=now - 11.0)
     if _rev_tick_ep(e2, 100.2, now) != "dead": problems.append("rev2: 10s no-bounce must DEAD")
     e3 = ep()
@@ -3087,152 +2910,30 @@ def _numeric_tests():
         problems.append("rev2: new low must RESET (low updated, counter incremented)")
     if _rev_tick_ep(ep(trig=now - 121.0), 99.0, now) != "stale":
         problems.append("rev2: >120s episode must go STALE")
-    # EXPLOSION v4.6.4 machine: minute projection, refractory, knife-guard
+    # EXPLOSION disjoint-window regression — THE historical bug (12x ceiling)
     sym = "PACETESTUSDT"
-    t0 = now_ts(); bucket = int(t0 // 60); t_in = bucket * 60 + 5.0
-    SS.px_windows[sym] = deque([(bucket * 60 - 5, 100.0), (t_in - 1.0, 102.0)])
-    _vol_medians[sym] = 1000.0
-    _explosion_accumulate(sym, 3000.0, 102.0, t_in)     # 3000 in 5s → 36x projected
-    pb = SS.pendings.get(sym)
-    if not pb:
-        problems.append("explosion: 36x pace +2% move must ARM a pullback")
+    st = SS.t1s[sym] = {"last_id": 0, "started": 0.0, "dq": deque(), "cur": None}
+    end = int(now_ts()); split = end - int(EXPLOSION_PACE_SEC); start = split - int(EXPLOSION_BASE_SEC)
+    st["started"] = float(start)
+    SS.trade_last_msg = float(end)   # synthetic data never calls _record_trade —
+                                     # v4.7.0 left this 0 and the feed-live gate
+                                     # returned None ("warmup not satisfied")
+    for s in range(start, split):                      # 180s baseline at 100/s
+        st["dq"].append((s, 100.0, 100.0, 100.0, 100.0, 100.0))
+    for s in range(split, end):                        # 15s burst at 3000/s
+        st["dq"].append((s, 100.0, 100.0, 100.0, 100.0, 3000.0))
+    SS.q24[sym] = 0.0
+    out = _trade_pace(sym, float(end))
+    if out is None: problems.append("pace: warmup not satisfied on synthetic data")
     else:
-        if pb["direction"] != "up" or abs(pb["level"] - 102.0 * (1 - EXPLOSION_PULLBACK_PCT / 100.0)) > 1e-9:
-            problems.append("explosion: wrong direction/level on armed pullback")
-        if SS.exp_fired.get(sym) != bucket:
-            problems.append("explosion: minute refractory not stamped")
-    _explosion_accumulate(sym, 5000.0, 102.5, t_in)     # same bucket → no re-arm
-    if len(SS.pendings) != 1: problems.append("explosion: refractory fired twice")
-    SS.pendings.pop(sym, None); SS.exp_fired.pop(sym, None); SS.exp_acc.pop(sym, None)
-    _explosion_accumulate(sym, 3000.0, 102.0, bucket * 60 + 2.0)   # <3s window
-    if SS.pendings.get(sym): problems.append("explosion: fired before the 3s window")
-    SS.pendings.pop(sym, None); SS.exp_fired.pop(sym, None); SS.exp_acc.pop(sym, None)
-    SS.pendings[sym] = {"symbol": sym, "direction": "up", "level": 100.0,
-                        "trigger_px": 101.0, "ts": t0}
-    SS.px_windows[sym] = deque([(t0 - 2.0, 100.5), (t0 - 1.0, 100.4), (t0, 100.0)])
-    _orig_spawn = spawn_entry
-    globals()["spawn_entry"] = lambda coro: coro.close()   # don't run opens in test
-    try:
-        _check_explosion_fills(None, t0)
-        if not SS.pendings.get(sym): problems.append("explosion: knife-guard failed (falling touch filled)")
-        SS.px_windows[sym] = deque([(t0 - 1.0, 99.9), (t0, 100.0)])   # rising touch
-        _check_explosion_fills(None, t0)
-        if SS.pendings.get(sym): problems.append("explosion: rising touch must FILL")
-    finally:
-        globals()["spawn_entry"] = _orig_spawn
-        SS.pendings.pop(sym, None); SS.px_windows.pop(sym, None); _vol_medians.pop(sym, None)
-    # flexible cooldown math (v4.8)
-    _set_lane_cooldown("CDUSDT", "SGRIND", 10.0)
-    if abs(_lane_cd[("CDUSDT", "SGRIND")] - now_ts() - LANE_COOLDOWN_WIN_SEC) > 1.0:
-        problems.append("cooldown: win must be 5 min")
-    _set_lane_cooldown("CDUSDT", "SGRIND", -45.0)
-    if abs(_lane_cd[("CDUSDT", "SGRIND")] - now_ts() - LANE_COOLDOWN_MAX_SEC) > 1.0:
-        problems.append("cooldown: full ~$45 loss must be 60 min")
-    _set_lane_cooldown("CDUSDT", "SGRIND", -5.0)
-    if abs(_lane_cd[("CDUSDT", "SGRIND")] - now_ts() - LANE_COOLDOWN_MIN_SEC) > 1.0:
-        problems.append("cooldown: tiny loss must hit the 10 min floor")
-    _set_lane_cooldown("CDUSDT", "SGRIND", -22.5)
-    if abs(_lane_cd[("CDUSDT", "SGRIND")] - now_ts() - 1800.0) > 2.0:
-        problems.append("cooldown: half loss must scale to ~30 min")
-    if not _lane_cooldown_ok("CDUSDT", "REV", 0.0):
-        problems.append("cooldown: REV must stay cooldown-free")
-    if _lane_cooldown_ok("CDUSDT", "SGRIND", _lane_cd[("CDUSDT", "SGRIND")] - 1.0):
-        problems.append("cooldown: inside the window must block")
-    _lane_cd.pop(("CDUSDT", "SGRIND"), None)
-    # SGRIND continuation + SGREV reversal A/B (v4.8.2)
-    sym = "SGTESTUSDT"
-    now_s = now_ts()
-    c1_open_ms = (int(now_s // 900) - 1) * 900 * 1000     # last CLOSED candle
-    def _sg_bars(n, step):
-        """n green streak candles (open_i = o0 + i*step) + 1 red opposite."""
-        o0 = 100.0
-        out = []
-        for k in range(n):
-            o = o0 + k * step; cl = o + step
-            out.append((c1_open_ms - (n - k) * 900000, o, cl + 0.1, o - 0.1, cl))
-        ro = o0 + n * step                                 # opposite candle open
-        out.append((c1_open_ms, ro, ro + 0.1, ro - 1.0, ro - 0.8))
-        return out
-    def _sg_setup(bars, px):
-        _k15[sym] = {"bars": deque(bars), "hi24": max(b[2] for b in bars),
-                     "lo24": min(b[3] for b in bars)}
-        _sg_last_bar.pop(sym, None); _sgrev_last_bar.pop(sym, None)
-        _sgrev_watch.pop(sym, None)
-        SS.px_windows[sym] = deque([(now_s, px)])
-    rec = []
-    orig_sig = _signal
-    globals()["_signal"] = lambda *a, **k: rec.append((a[2], a[3]))
-    try:
-        # A) sgrev arm: 5-candle grind (+5.1%), px mid → SHORT watch at the red low
-        barsA = _sg_bars(5, 1.0)
-        _sg_setup(barsA, barsA[-1][3] + 0.2)
-        _sgrev_scan(None, now_s)
-        w = _sgrev_watch.get(sym)
-        if not w or w["trade_dir"] != "down" or abs(w["level"] - barsA[-1][3]) > 1e-9:
-            problems.append("sgrev: 5-candle grind must arm a SHORT watch at the red low")
-        # B) sgrev stale: break before discovery → skipped
-        _sg_setup(barsA, barsA[-1][3] - 0.3)
-        _sgrev_scan(None, now_s)
-        if _sgrev_watch.get(sym): problems.append("sgrev: stale break must be skipped")
-        # C) sgrev fire: armed, LIVE px breaks the red low → SHORT
-        _sg_setup(barsA, barsA[-1][3] + 0.2)
-        _sgrev_scan(None, now_s)
-        rec.clear()
-        SS.px_windows[sym] = deque([(now_ts(), barsA[-1][3] - 0.1)])
-        _sgrev_scan(None, now_ts())
-        if rec != [("SGREV", "down")]:
-            problems.append(f"sgrev: live low-break must fire SHORT (got {rec})")
-        if _sgrev_watch.get(sym): problems.append("sgrev: watch must be consumed on fire")
-        # D) sgrev kill: px back above the red HIGH → reversal failed
-        _sg_setup(barsA, barsA[-1][3] + 0.2)
-        _sgrev_scan(None, now_s)
-        SS.px_windows[sym] = deque([(now_ts(), barsA[-1][2] + 0.1)])
-        _sgrev_scan(None, now_ts())
-        if _sgrev_watch.get(sym): problems.append("sgrev: grind resuming must kill the watch")
-        # E) sgrev threshold: 4-candle grind +3.7% → below 4% → no arm
-        _sg_setup(_sg_bars(4, 0.9), 103.0)
-        _sgrev_scan(None, now_s)
-        if _sgrev_watch.get(sym): problems.append("sgrev: <4% grind must not arm")
-        # F) sgrev: 8-candle grind (no upper limit) → arms
-        _sg_setup(_sg_bars(8, 0.55), 104.5)
-        _sgrev_scan(None, now_s)
-        if not _sgrev_watch.get(sym): problems.append("sgrev: 8-candle grind must arm (no max)")
-        # G) sgrev mirror: 5 red candles (−4.6%) → live high-break fires LONG
-        o0 = 200.0
-        reds = []
-        for k in range(5):
-            o = o0 - k * 1.8; cl = o - 1.8
-            reds.append((c1_open_ms - (5 - k) * 900000, o, o + 0.1, cl - 0.1, cl))
-        go = o0 - 5 * 1.8
-        reds.append((c1_open_ms, go, go + 1.0, go - 0.1, go + 0.8))
-        _sg_setup(reds, go + 0.2)
-        _sgrev_scan(None, now_s)
-        rec.clear()
-        SS.px_windows[sym] = deque([(now_ts(), reds[-1][2] + 0.1)])
-        _sgrev_scan(None, now_ts())
-        if rec != [("SGREV", "up")]:
-            problems.append(f"sgrev: down-grind high-break must fire LONG (got {rec})")
-        # H) sgrind continuation restored: same grind, break ALREADY happened at
-        #    discovery → fires WITH the trend immediately...
-        _sg_setup(barsA, barsA[-1][3] - 0.1)
-        _sg_scan(None, now_s)
-        if rec[-1:] != [("SGRIND", "up")]:
-            problems.append(f"sgrind: continuation must fire LONG on extension (got {rec[-1:]})")
-        _sgrev_scan(None, now_s)   # ...and SGREV skips the same setup as stale
-        if _sgrev_watch.get(sym): problems.append("sgrev: must not arm a stale setup")
-        # I) sgrind: 7-candle streak → rejected (v4.6.4 nuance: max 6)
-        _sg_setup(_sg_bars(7, 1.0), 100.0 + 7 * 1.0)
-        rec.clear()
-        _sg_scan(None, now_s)
-        if rec: problems.append(f"sgrind: 7-candle streak must be rejected (got {rec})")
-    finally:
-        globals()["_signal"] = orig_sig
-        _k15.pop(sym, None); SS.px_windows.pop(sym, None)
-        _sg_last_bar.pop(sym, None); _sgrev_last_bar.pop(sym, None)
-        _sgrev_watch.pop(sym, None)
-    _SDB_PATH = prev_db
-    try: os.unlink(tmp.name)
-    except Exception: pass
+        pace, base = out
+        ratio = pace / base
+        combined_base = (18000.0 + 45000.0) / (EXPLOSION_BASE_SEC + EXPLOSION_PACE_SEC)
+        if not (pace > 2999 and ratio >= EXPLOSION_VOL_X):
+            problems.append(f"pace: disjoint windows must ARM (got {ratio:.1f}x)")
+        if (pace / combined_base) >= EXPLOSION_VOL_X:
+            problems.append("pace: regression anchor broken — self-inclusion would arm")
+    SS.t1s.pop(sym, None); SS.q24.pop(sym, None)
     return problems
 
 def selftest():
@@ -3245,16 +2946,14 @@ def selftest():
     required_defs = [
         "seed_worker", "_seed_one", "_record_tick", "_spawn_seed",
         "k_cache_refresher", "_dd2_scan", "_dd2_classify", "_dipx_scan", "_sg_scan",
-        "_sgrev_scan",
         "_burst_scan", "_c2_open",
         "_pf_scan", "_pf_confirm_relong", "_fb_scan", "_sq_scan",
         "_follower_build_prelist", "_follower_scan", "_follower_confirm", "_dayopen_scan",
         "now_measure_worker", "fetch_horizon_price", "funding_ts_worker",
         "_funding_squeeze_arm", "_rev_episode_scan", "_rev_tick_ep", "_rev_resolve",
         "_rev_oi_instrument", "book_manager", "market_recorder",
-        "trade_reader", "_record_trade", "_explosion_accumulate", "_vol_median_refresher",
+        "trade_reader", "_record_trade", "_trade_pace", "_explosion_check",
         "_check_explosion_fills", "_explosion_open",
-        "_lane_cooldown_ok", "_set_lane_cooldown",
         "_signal", "_emit_signal", "_confirm_and_open", "_final_admission",
         "signal_consumer", "manage_position", "_manage_follower",
         "open_position", "close_position", "_set_pos_flag", "_save_excursions",
@@ -3266,7 +2965,7 @@ def selftest():
         "poll_loop", "stream_reader", "tg_report_worker", "build_report_text",
         "report", "selftest", "_smoke_test_db", "_migration_test_db", "run", "main",
         "_px_ago", "_extremes", "stream_price", "notional_for", "roundtrip_cost",
-        "decide", "_ws_reset",
+        "decide", "_ws_reset", "_is_vertical", "_direction_cap_ok",
     ]
     for name in required_defs:
         if name not in globals(): problems.append(f"missing function: {name}")
@@ -3274,12 +2973,11 @@ def selftest():
     for name in ("ws_force_reader", "_on_liquidation", "_check_whale_exhaustion",
                  "symbol_consecutive_losses", "symbol_daily_loss_usd", "symbol_daily_loss_count",
                  "_rearm_ok", "_over_extended", "_vol_stop", "_brain_blocks",
-                 "fetch_5m_avg_range", "_hl_range_pct",
-                 "_trade_pace", "_explosion_check", "_is_vertical", "_direction_cap_ok",
-                 "_whale_check"):
+                 "fetch_5m_avg_range", "_hl_range_pct", "_vol_median_refresher",
+                 "_explosion_accumulate", "_whale_check"):
         if name in globals(): problems.append(f"REMOVED function still present: {name}")
     for attr in ("flow3s", "liq_flow", "whale_state", "q_hist", "vol_stop_cache",
-                 "prev_q24", "move_state", "trade_ids", "trade_volume"):
+                 "prev_q24", "exp_acc", "trade_ids", "trade_volume"):
         if hasattr(SS, attr): problems.append(f"REMOVED StreamState attr still present: {attr}")
     if "WHALE_REV" in LANE_PRIO: problems.append("WHALE_REV still in LANE_PRIO")
     required_globals = [
@@ -3287,44 +2985,37 @@ def selftest():
         "EARLY_CUT_PCT", "REV_DUMP_PCT", "REV_BOUNCE_PCT", "REV_WATCH_SEC",
         "REV_CUTOVER_N", "SYS_BTC_DROP_PCT", "DIP_BUDGET", "DIP_LANES",
         "FS_DUMP_PCT", "FS_BOUNCE_PCT", "FUNDING_EXTREME", "DD2_DROP_PCT",
-        "DD2_CANDLES", "SG_MIN_CANDLES", "SG_MAX_CANDLES", "SGREV_MIN_CANDLES",
-        "SGREV_MIN_STREAK_PCT", "PF_MIN_RUN_PCT", "PF_RELONG_OI_DROP",
+        "DD2_CANDLES", "SG_MIN_CANDLES", "PF_MIN_RUN_PCT", "PF_RELONG_OI_DROP",
         "BURST_BODY_PCT", "BURST_GAP_MAX_PCT", "BURST_COOLDOWN_SEC",
-        "EXPLOSION_VOL_X", "EXPLOSION_PULLBACK_PCT", "VOL_MEDIAN_REFRESH_SEC",
+        "EXPLOSION_VOL_X", "EXPLOSION_PACE_SEC", "EXPLOSION_BASE_SEC",
         "LANE_PRIO", "LANE_SIZE_MULT", "RULES_VER", "NEXUS_ROLE", "IS_SCANNER",
         "IS_TRADER", "MAX_CONCURRENT", "RISK_DOLLARS", "SESSION_SIZES",
         "MARKET_DB_PATH", "ENABLE_DEEPDIP_V2", "ENABLE_FAILBREAK", "ENABLE_SQUEEZE",
-        "ENABLE_FOLLOWER", "ENABLE_BURST", "ENABLE_EXPLOSION",
+        "ENABLE_FOLLOWER", "ENABLE_BURST", "ENABLE_EXPLOSION", "EXPLOSION_LIVE",
         "RECORDER_TOP_N", "REC_BUF_CAP",
-        "FLEX_CD_LANES", "LANE_COOLDOWN_WIN_SEC", "LANE_COOLDOWN_MAX_SEC",
     ]
     for name in required_globals:
         if name not in globals(): problems.append(f"missing global: {name}")
     for attr in ("px_windows", "q24", "rev_1s", "rev_eps", "bid", "t1s", "watch",
-                 "waitroom", "pendings", "exp_fired", "exp_acc", "confirming",
+                 "waitroom", "pendings", "exp_fired", "move_state", "confirming",
                  "rec_buf", "rec_bid_buf", "rec_syms", "rec_episodes", "sig_log",
                  "btc_px"):
         if not hasattr(SS, attr): problems.append(f"StreamState missing: {attr}")
     wiring = [
         ("_ladder_floor", "manage_position"), ("_early_cut", "manage_position"),
         ("_manage_follower", "manage_position"), ("FOLLOWER", "manage_position"),
-        ("_explosion_accumulate", "stream_reader"), ("prev_q", "stream_reader"),
-        ("_check_explosion_fills", "_check_stream_triggers"),
-        ("_vol_median_refresher", "run"),
-        ("_rev_episode_scan", "_check_stream_triggers"),
+        ("_trade_pace", "_explosion_check"), ("_check_explosion_fills", "_check_stream_triggers"),
+        ("_explosion_check", "_check_stream_triggers"), ("_rev_episode_scan", "_check_stream_triggers"),
         ("_is_systemic", "_rev_episode_scan"), ("_dip_budget_ok", "_rev_episode_scan"),
         ("_funding_squeeze_arm", "_check_stream_triggers"),
         ("_record_trade", "trade_reader"), ("30.0", "trade_reader"),
         ("_emit_signal", "_signal"), ("_final_admission", "_confirm_and_open"),
         ("_final_admission", "_explosion_open"), ("notional_for", "open_position"),
         ("paper", "open_position"), ("episode_id", "open_position"), ("regime", "open_position"),
-        ("_set_lane_cooldown", "close_position"), ("_lane_cooldown_ok", "_signal"),
-        ("SGRIND", "_final_admission"),
         ("dip_budget_atomic", "open_position"), ("_regime_tag", "close_position"),
         ("entry_ver", "close_position"), ("sl_pct", "close_position"),
         ("_dd2_scan", "poll_loop"), ("_dipx_scan", "poll_loop"), ("_sg_scan", "poll_loop"),
-        ("_sgrev_scan", "poll_loop"), ("SGREV", "_final_admission"),
-        ("_burst_scan", "poll_loop"), ("ENABLE_BURST", "_burst_scan"),
+        ("_burst_scan", "poll_loop"), ("ENABLE_BURST", "_burst_scan"), ("BURST", "_signal"),
         ("_pf_scan", "poll_loop"), ("_fb_scan", "poll_loop"), ("_sq_scan", "poll_loop"),
         ("_follower_scan", "poll_loop"), ("_dayopen_scan", "poll_loop"),
         ("signal_consumer", "run"), ("NEXUS_ROLE == \"trader\"", "run"),
@@ -3379,9 +3070,9 @@ async def run():
     takeover()
     print("=" * 66)
     print(f"NEXUS INERTIA TRADER {RULES_VER} — role={NEXUS_ROLE} · ladder exits · mechanism lanes")
-    print(f"  LIVE : ⚡REV v3(2.5%/60s→bid+0.75%) · 🧲FSQZ(2%/1%, half) · 🕳🕳DIP-X(half) · 🐌SGRIND(cont)·🔄SGREV(rev) · 🚀PFADE")
-    print(f"  LIVE : 🕳DEEPDIP v2 · 🪤FAILBREAK · 🧨SQUEEZE · 🐦FOLLOWER · 🔆BURST · 💥EXPLOSION(v4.6.4 machine, full)")
-    print(f"  v4.8 : sessions flat · no direction caps · no vertical veto · flexible cooldowns (≤1h)")
+    print(f"  LIVE : ⚡REV v2(3%/60s tick→bid+0.5%) · 🧲FSQZ(pinned 2%/1%) · 🕳🕳DIP-X · 🐌SGRIND · 🚀PFADE(OI/fund-confirmed re-long)")
+    print(f"  PAPER: 🕳DEEPDIP v2(2 green 15m) · 🪤FAILBREAK · 🧨SQUEEZE · 🐦FOLLOWER · 🔆BURST(5% body→intrabar break)")
+    print(f"  OFF  : 💥EXPLOSION restored(v4.6.3 aggTrade) — ENABLE_EXPLOSION={ENABLE_EXPLOSION} · live flip: NEXUS_EXPLOSION_LIVE=1")
     print(f"  INSTR: 🫗OI_FLUSH(episodes) · LOG: ⏰FUNDING_TS · 🌅DAYOPEN · DEAD: 🐋WHALE_REV")
     print(f"  exits: stop -{SL_PCT}% HARD · ladder {LADDER_ARM_PCT}/{LADDER_GAP}→{LADDER_GAP_AT}/{LADDER_GAP_BIG} · cut -{EARLY_CUT_PCT}%")
     print(f"  system: dip budget {DIP_BUDGET} · co-fire audit ±{int(CO_FIRE_WINDOW/60)}m · regime tags · "
@@ -3397,12 +3088,11 @@ async def run():
         SESSION_M = session
         print(f"[ready] v{RULES_VER} armed — role {NEXUS_ROLE} · selftest passed")
         notify(session, f"🚀 NEXUS {RULES_VER} armed (role {NEXUS_ROLE}, selftest OK)\n"
-                        f"ALL 11 lanes LIVE: REV v3·FSQZ·DIP-X·SGRIND·SGREV·PFADE·DDv2·FAILBREAK·SQUEEZE·FOLLOWER·BURST·EXPLOSION\n"
-                        f"flat sessions · no direction caps · flexible cds ≤1h · stop -2.2% · ladder 0.8/0.5→3.0/1.0\n"
+                        f"Live: REV v2·FSQZ·DIP-X·SGRIND·PFADE | Paper: DDv2·FAILBREAK·SQUEEZE·FOLLOWER·BURST\n"
+                        f"EXPLOSION restored (replay-gated) · stop -2.2% · ladder 0.8/0.5→3.0/1.0\n"
                         f"ledger {SHADOW_DB_PATH} · pid {os.getpid()}@{_host()}")
         scanner_workers = [
             asyncio.ensure_future(trade_reader()),
-            asyncio.ensure_future(_vol_median_refresher(session)),   # EXPLOSION medians
             asyncio.ensure_future(book_manager()),
             asyncio.ensure_future(market_recorder()),
             asyncio.ensure_future(k_cache_refresher(session)),
