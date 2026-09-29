@@ -1044,7 +1044,9 @@ def _rev_episode_scan(session, now):
         if sym in SS.rev_eps or len(dq) < 45: continue
         c = dq[-1][1]
         t60 = int(now) - 60
-        hi = max(p for s, p in dq if s >= t60)
+        pts = [p for s, p in dq if s >= t60]
+        if not pts: continue   # quiet symbol, no 60s reference — max() on empty here crashed the whole ticker feed
+        hi = max(pts)
         if hi <= 0: continue
         dump = (c / hi - 1.0) * 100.0
         if dump > -REV_DUMP_PCT: continue
@@ -1516,6 +1518,7 @@ async def trade_reader():
 # Part 3/4 begins at: # ============ 15M/1H KLINE CACHE + LANES
 # ================================================================ 15M/1H KLINE CACHE
 _k15 = {}   # sym → {"bars": deque[(open_ms,o,h,l,c,q)] closed 15m, "hi24": px, "lo24": px}
+_k15_http_last = 0   # last non-200 klines status logged (0 = none)
 _k1h = {}   # sym → deque[(open_ms,o,h,l,c,q)] closed 1h, 168 = 7d (SQUEEZE)
 _k1h_fail = {}
 def _cdir(bar): return 1 if bar[4] > bar[1] else (-1 if bar[4] < bar[1] else 0)
@@ -1524,6 +1527,7 @@ async def k_cache_refresher(session):
     """One worker, two caches, top-150 by q24. 15m: 96 closed bars = 24h
     (DDv2 latch, SGRIND streaks, PFADE structure, FAILBREAK 12h high, DAYOPEN).
     1h: 168 bars = 7d (SQUEEZE width percentile + ATR)."""
+    global _k15_http_last
     while not _shutdown.is_set():
         try:
             syms = [s for s, _q in sorted(SS.q24.items(), key=lambda kv: -kv[1])[:K15_SYMS]]
@@ -1533,6 +1537,9 @@ async def k_cache_refresher(session):
                     async with session.get(f"{FAPI}/fapi/v1/klines",
                         params={"symbol": sym, "interval": "15m", "limit": K15_LIMIT},
                         timeout=aiohttp.ClientTimeout(total=8)) as r:
+                        if r.status != 200 and r.status != _k15_http_last:
+                            _k15_http_last = r.status
+                            print(f"[{hms()}] [k15  ] klines HTTP {r.status} for {sym} — REST failing (geo-block/region?)")
                         if r.status == 200:
                             kl = await r.json()
                             if isinstance(kl, list) and len(kl) >= 40:
