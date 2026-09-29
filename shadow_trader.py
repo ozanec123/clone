@@ -1519,6 +1519,7 @@ async def trade_reader():
 # ================================================================ 15M/1H KLINE CACHE
 _k15 = {}   # sym → {"bars": deque[(open_ms,o,h,l,c,q)] closed 15m, "hi24": px, "lo24": px}
 _k15_http_last = 0   # last non-200 klines status logged (0 = none)
+_k15_exc_last = ""   # last klines exception logged (dedupe)
 _k1h = {}   # sym → deque[(open_ms,o,h,l,c,q)] closed 1h, 168 = 7d (SQUEEZE)
 _k1h_fail = {}
 def _cdir(bar): return 1 if bar[4] > bar[1] else (-1 if bar[4] < bar[1] else 0)
@@ -1548,7 +1549,11 @@ async def k_cache_refresher(session):
                                 _k15[sym] = {"bars": bars,
                                              "hi24": max(b[2] for b in bars),
                                              "lo24": min(b[3] for b in bars)}
-                except Exception: pass
+                except Exception as e:
+                    key = repr(e)[:140]
+                    if key != _k15_exc_last:
+                        _k15_exc_last = key
+                        print(f"[{hms()}] [k15  ] klines request failed: {key}")
                 try:
                     async with session.get(f"{FAPI}/fapi/v1/klines",
                         params={"symbol": sym, "interval": "1h", "limit": K1H_LIMIT},
